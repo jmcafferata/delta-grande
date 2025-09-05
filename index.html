@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELTA+</title>
+    <style>
+        :root {
+            --bg: #0d0f12;
+            --fg: #eef2f6;
+            --muted: #94a3b8;
+            --accent: #35c9a5;
+            --card: #141820;
+            --ring: #ffffff33;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.45
+        }
+
+        a {
+            color: inherit
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            backdrop-filter: saturate(1.2) blur(6px);
+            background: #0d0f12cc;
+            border-bottom: 1px solid #1f2732;
+            z-index: 10
+        }
+
+        .wrap {
+            max-width: 1100px;
+            margin: auto;
+            padding: 16px 20px
+        }
+
+        header .wrap {
+            display: flex;
+            justify-content: center;
+            /* centra horizontalmente */
+            align-items: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: .08em;
+            text-align: center;
+            /* seguridad extra */
+        }
+
+
+        main section {
+            padding: 32px 0;
+            border-bottom: 1px solid #1f2732
+        }
+
+        #isla {
+            height: 60vh;
+            min-height: 420px;
+            position: relative;
+            overflow: hidden;
+            background: transparent;
+        }
+
+
+        #isla canvas {
+            display: block;
+            width: 100%;
+            height: 100%
+        }
+
+        .badge {
+            position: absolute;
+            inset: auto 12px 12px auto;
+            background: #0009;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            border: 1px solid #ffffff22
+        }
+
+        /* 2) TRAILER */
+        .video {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            border-radius: 14px;
+            overflow: hidden;
+            background: #000
+        }
+
+        .video iframe {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0
+        }
+
+        /* 3) MAPA CON MARKERS */
+        .mapa {
+            position: relative;
+            border-radius: 14px;
+            overflow: hidden;
+            background: #0b0e13
+        }
+
+        .mapa img {
+            display: block;
+            width: 100%;
+            height: auto;
+            user-select: none
+        }
+
+        .marker {
+            position: absolute;
+            left: 0;
+            top: 0;
+            transform: translate(-50%, -50%);
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #e11d48;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 6px var(--ring);
+            cursor: pointer;
+            display: inline-block
+        }
+
+        .marker:hover {
+            transform: translate(-50%, -50%) scale(1.12)
+        }
+
+        .marker::after {
+            content: attr(aria-label);
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%, -120%);
+            background: #0b0e13;
+            color: #fff;
+            padding: 6px 8px;
+            border-radius: 8px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            border: 1px solid #ffffff22;
+            transition: opacity .2s, transform .2s
+        }
+
+        .marker:hover::after {
+            opacity: .98;
+            transform: translate(-50%, -140%)
+        }
+
+        /* 4) NEWS (scroll horizontal) */
+        .news-wrap {
+            display: flex;
+            gap: 14px;
+            overflow: auto;
+            padding-bottom: 6px;
+            scroll-snap-type: x mandatory;
+            -ms-overflow-style: none;
+            /* IE/Edge */
+            scrollbar-width: none;
+            /* Firefox */
+        }
+
+        .news-wrap::-webkit-scrollbar {
+            display: none;
+            /* Chrome, Safari */
+        }
+
+        .news-card {
+            min-width: 260px;
+            max-width: 280px;
+            background: var(--card);
+            border: 1px solid #1f2732;
+            border-radius: 12px;
+            padding: 14px;
+            scroll-snap-align: start
+        }
+
+        .news-card h3 {
+            font-size: 16px;
+            margin: 6px 0 6px
+        }
+
+        .news-card p {
+            color: var(--muted);
+            font-size: 14px;
+            margin: 0 0 10px
+        }
+
+        .news-card time {
+            display: block;
+            color: #9ca3af;
+            font-size: 12px
+        }
+
+        .news-card a {
+            display: inline-block;
+            margin-top: 4px;
+            padding: 6px 10px;
+            border: 1px solid #2b3544;
+            border-radius: 8px;
+            text-decoration: none
+        }
+
+        footer {
+            padding: 28px 0;
+            color: #9aa4b2
+        }
+
+        @media (prefers-reduced-motion:no-preference) {
+            .marker {
+                animation: pulse 2.4s ease-in-out infinite
+            }
+
+            @keyframes pulse {
+
+                0%,
+                100% {
+                    box-shadow: 0 0 0 6px var(--ring)
+                }
+
+                50% {
+                    box-shadow: 0 0 0 10px #ffffff18
+                }
+            }
+        }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+
+<body>
+    <header>
+        <div class="wrap">
+            <h1>DELTA+</h1>
+        </div>
+    </header>
+
+    <main class="wrap">
+        <!-- 1) TIERRA FLOTANTE -->
+        <section aria-labelledby="sec-isla">
+            <div id="isla"><span class="badge">Arrastrá para orbitar</span></div>
+        </section>
+
+        <!-- 2) TRAILER (YouTube) -->
+        <section aria-labelledby="sec-trailer">
+            <div class="video">
+                <!-- Reemplaza YOUR_YOUTUBE_ID -->
+                <iframe src="https://www.youtube.com/embed/YOUR_YOUTUBE_ID?rel=0&modestbranding=1&playsinline=1"
+                    title="Trailer"
+                    allow="accelerometer;autoplay;encrypted-media;gyroscope;picture-in-picture;web-share"
+                    allowfullscreen></iframe>
+            </div>
+        </section>
+
+        <!-- 3) MAPA -->
+        <section aria-labelledby="sec-mapa">
+            <div class="mapa" id="mapa">
+                <!-- Reemplaza assets/map.jpg -->
+                <img src="assets/map.png" alt="Mapa del Delta" />
+                <!-- Los 3 markers se generan por JS desde markersData -->
+            </div>
+        </section>
+
+        <!-- 4) NEWS -->
+        <section aria-labelledby="sec-news">
+            <h2 id="sec-news">News</h2>
+            <div class="news-wrap" id="newsWrap" role="list"></div>
+        </section>
+    </main>
+
+    <footer class="wrap">© DELTA+ — 2025</footer>
+
+    <!-- Semilla de noticias (fallback si no existe /news.json) -->
+    <script type="application/json" id="newsSeed">[
+    {"id":"n1","title":"Lanzamiento del tráiler","summary":"Publicamos el teaser oficial.","date":"2025-09-02T19:30:00-03:00","url":"#"},
+    {"id":"n2","title":"Scan 3D del primer islote","summary":"Captura con dron + fotogrametría.","date":"2025-09-05T10:00:00-03:00","url":"#"},
+    {"id":"n3","title":"Mapa interactivo v1","summary":"Tres puntos clave navegables.","date":"2025-09-08T09:15:00-03:00","url":"#"},
+    {"id":"n4","title":"Sesión de sonido","summary":"Fermín Delia graba campo estéreo/ambisónico.","date":"2025-09-12T18:00:00-03:00","url":"#"},
+    {"id":"n5","title":"Beta cerrada","summary":"Primeros testers invitados.","date":"2025-09-15T11:00:00-03:00","url":"#"}
+  ]</script>
+
+    <!-- App -->
+    <script type="module">
+        /* ====== THREE.JS ISLA ====== */
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+
+        const container = document.querySelector('#isla');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+        const loader = new GLTFLoader();
+        let island = null;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setClearColor(0x000000, 0); // 0 de alpha = transparente
+        container.appendChild(renderer.domElement);
+
+
+        // Luz
+        const hemi = new THREE.HemisphereLight(0xffffff, 0x334455, 1.1);
+        scene.add(hemi);
+        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+        dir.position.set(2, 3, 2);
+        dir.castShadow = true;
+        scene.add(dir);
+
+        // Suelo sutil para sombras (opcional)
+        const ground = new THREE.Mesh(
+            new THREE.CircleGeometry(6, 64),
+            new THREE.ShadowMaterial({ opacity: 0.18 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Controles
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 0.5, 0);
+        controls.enableZoom = false;
+
+
+        loader.load('assets/island.glb', (gltf) => {
+            island = gltf.scene;
+            island.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+            scene.add(island);
+
+            // Compute bounding box
+            const box = new THREE.Box3().setFromObject(island);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Distance for framing
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = THREE.MathUtils.degToRad(camera.fov);
+            let dist = maxDim / (2 * Math.tan(fov / 2));
+            dist *= 1.3;
+
+            // Position camera
+            camera.position.set(center.x + dist, center.y + dist * 0.25, center.z + dist);
+            camera.near = Math.max(0.1, maxDim / 100);
+            camera.far = maxDim * 100;
+            camera.updateProjectionMatrix();
+
+            // Target a bit above center
+            controls.target.copy(center).add(new THREE.Vector3(0, size.y * 0.15, 0));
+            controls.update();
+
+            // --- Override with your chosen view ---
+            const CAM = [15.265, 10.826, 22.644];
+            const TGT = [0.714, 7.000, -0.294];
+            camera.position.set(...CAM);
+            controls.target.set(...TGT);
+            controls.update();
+
+            function v(v) { return v.toArray().map(n => +n.toFixed(3)); }
+            function logState(tag) { console.log(tag, { cam: v(camera.position), tgt: v(controls.target) }); }
+            controls.addEventListener('change', () => logState('controls-change'));
+            logState('init');
+        });
+
+        function resize() {
+            const { clientWidth: w, clientHeight: h } = container;
+            renderer.setSize(w, h, false);
+            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+            camera.aspect = w / h; camera.updateProjectionMatrix();
+        }
+        new ResizeObserver(resize).observe(container);
+
+        renderer.setAnimationLoop(() => {
+            controls.update();
+            if (island) { island.rotation.y += 0.004; }
+            renderer.render(scene, camera);
+        });
+
+        /* ====== MAPA con 3 markers ====== */
+        const markersData = [
+            { id: 'm1', x: 28, y: 36, title: 'Isla Chica', href: '#isla-chica' },
+            { id: 'm2', x: 62, y: 49, title: 'Arroyo Norte', href: '#arroyo-norte' },
+            { id: 'm3', x: 42, y: 72, title: 'Muelle Viejo', href: '#muelle-viejo' }
+        ];
+        const mapa = document.querySelector('#mapa');
+        markersData.forEach(m => {
+            const a = document.createElement('a');
+            a.className = 'marker';
+            a.href = m.href;
+            a.style.left = m.x + '%';
+            a.style.top = m.y + '%';
+            a.setAttribute('aria-label', m.title);
+            a.title = m.title;
+            a.addEventListener('click', e => {
+                // Personalizá: abrir modal, scroll, etc.
+                console.log('Marker click:', m);
+            });
+            mapa.appendChild(a);
+        });
+
+        /* ====== NEWS desde JSON ====== */
+        const newsWrap = document.querySelector('#newsWrap');
+        async function loadNews() {
+            try {
+                const r = await fetch('news.json', { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return await r.json();
+            } catch (e) {
+                const seed = document.querySelector('#newsSeed')?.textContent || '[]';
+                return JSON.parse(seed);
+            }
+        }
+        function fmtDate(iso) {
+            const d = new Date(iso);
+            return d.toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+        function card(n) {
+            const el = document.createElement('article');
+            el.className = 'news-card'; el.role = 'listitem';
+            el.innerHTML = `
+        <time datetime="${n.date}">${fmtDate(n.date)}</time>
+        <h3>${n.title}</h3>
+        ${n.summary ? `<p>${n.summary}</p>` : ''}
+        <a href="${n.url || '#'}" target="_blank" rel="noopener">Ver más</a>
+      `;
+            return el;
+        }
+        (await loadNews()).slice(0, 12).forEach(n => newsWrap.appendChild(card(n)));
+    </script>
+</body>
+
+</html>

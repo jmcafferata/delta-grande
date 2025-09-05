@@ -1,0 +1,7 @@
+[
+  { "id":"n1", "title":"Lanzamiento del tráiler", "summary":"Publicamos el teaser oficial.", "date":"2025-09-02T19:30:00-03:00", "url":"#" },
+  { "id":"n2", "title":"Scan 3D del primer islote", "summary":"Captura con dron + fotogrametría.", "date":"2025-09-05T10:00:00-03:00", "url":"#" },
+  { "id":"n3", "title":"Mapa interactivo v1", "summary":"Tres puntos clave navegables.", "date":"2025-09-08T09:15:00-03:00", "url":"#" },
+  { "id":"n4", "title":"Sesión de sonido", "summary":"Fermín Delia graba campo estéreo/ambisónico.", "date":"2025-09-12T18:00:00-03:00", "url":"#" },
+  { "id":"n5", "title":"Beta cerrada", "summary":"Primeros testers invitados.", "date":"2025-09-15T11:00:00-03:00", "url":"#" }
+]
