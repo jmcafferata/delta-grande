@@ -1,0 +1,22 @@
+{
+  "stages": [
+    {
+      "id": "r1",
+      "photo": "/game-assets/recorrido/recorrido01.jpg",
+      "marker": { "src": "/game-assets/recorrido/tembetari.png", "yaw": 0, "pitch": 5, "scale": [500, 450] },
+      "transition": "/game-assets/recorrido/transicion01.mp4",
+      "forward": { "yaw": -25, "pitch": 0 },
+      "audio": "/game-assets/recorrido/monte.mp3",
+      "reward": { "id": "obj_semilla", "name": "Semilla de Timbó" }
+    },
+    {
+      "id": "r2",
+      "photo": "/game-assets/recorrido/recorrido02.jpg",
+      "marker": { "src": "/game-assets/recorrido/tembetari.png", "yaw": 0, "pitch": 0, "scale": [300, 300] },
+      "transition": "/game-assets/recorrido/transicion02.mp4",
+      "forward": { "yaw": 180, "pitch": 0 },
+      "audio": "/game-assets/recorrido/monte.mp3",
+      "reward": { "id": "obj_corteza", "name": "Corteza de Sauce" }
+    }
+  ]
+}
