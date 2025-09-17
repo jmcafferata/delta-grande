@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>360 Image Viewer</title>
+    <style>
+        html, body { height: 100%; margin: 0; }
+        #viewer { width: 100vw; height: 100vh; display: block; }
+    </style>
+</head>
+<body>
+    <div id="viewer"></div>
+    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"/>
+    <script>
+        pannellum.viewer('viewer', {
+            type: 'equirectangular',
+            panorama: '03.jpg',
+            autoLoad: true
+        });
+    </script>
+</body>
+</html>
