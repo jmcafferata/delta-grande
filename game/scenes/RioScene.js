@@ -2,89 +2,591 @@ import * as THREE from 'three';
 import { BaseScene } from '../core/BaseScene.js';
 import { AssetLoader } from '../core/AssetLoader.js';
 
+/**
+ * =============================================================
+ * RioScene — geometry + behavior aligned to explicit world params
+ * =============================================================
+ *
+ * What’s new / key guarantees
+ * ---------------------------
+ * • A single, explicit set of world-space parameters drives *everything*:
+ *   - surfaceLevel  : y of the water surface plane, fog toggle, swimbox Y max,
+ *                     and camera Y max (via cameraSurfaceMargin).
+ *   - floorLevel    : y of the riverbed; also camera Y min and swimbox Y min.
+ *   - shoreLevel    : x of the shoreline; also swimbox X min.
+ *   - cameraLevel   : camera’s current x (distance from shore); also swimbox X max.
+ *   - leftLimit     : z min for both swimbox and camera movement.
+ *   - rightLimit    : z max for both swimbox and camera movement.
+ *
+ * • No hidden offsets or derived magic: the above parameters are used directly.
+ *   (The only deliberate offset is cameraSurfaceMargin so the camera can go
+ *    slightly above the water surface for comfort; it’s an explicit param.)
+ *
+ * • Fish biasing keeps Gaussian behavior but default σ = 0 for X and Y
+ *   (shore/camera and high/low directions) to simplify debugging.
+ *   You can tune both σ and the means per stratum/shoring easily in params.
+ *
+ * • Gameplay Update: A fish-catching deck UI is now overlaid on the scene.
+ *   - Players can cycle through fish species using arrow keys.
+ *   - Clicking a fish in the water while the matching species is selected
+ *     "catches" it, revealing its model in the deck and incrementing a counter.
+ */
+
+/* -------------------------------------------------------------
+ * Utility functions
+ * ------------------------------------------------------------- */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+// Standard normal noise (Box–Muller). mean=0, sigma=1
+const randn = () => {
+  let u = 1 - Math.random();
+  let v = 1 - Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+};
+
+/* -------------------------------------------------------------
+ * Param scales and species configuration
+ * ------------------------------------------------------------- */
+const SizeScale       = { small: 1.0,  medium: 1.5,  large: 2.0 };
+const SpeedScale      = { slow: 0.3,   medium: 1.0,  fast: 2.0 };
+const AbundanceCount  = { scarce: 5,   usual: 20,    veryCommon: 50 };
+
+/**
+ * Species water-column / shore mapping keys:
+ *   - water: 'surface' | 'midwater' | 'bottom'
+ *   - shore: 'near'    | 'mid'      | 'deep'
+ *
+ * If a GLB fails to load, a colored prism is used as fallback.
+ * `flips` may invert local axes so the auto-detected long axis
+ * points “forward” correctly per model.
+ */
+const SPECIES = [
+  {
+    key: 'dorado',
+    displayName: 'Dorado (Salminus brasiliensis)',
+    glb: '/game-assets/sub/fish/dorado.glb',
+    fallbackColor: 0xF3C623,
+    flips: { x: false, y: false, z: false },
+    size: 'large', abundance: 'usual', speed: 'fast', water: 'midwater', shore: 'mid'
+  },
+  {
+    key: 'sabalo',
+    displayName: 'Sábalo (Prochilodus lineatus)',
+    glb: '/game-assets/sub/fish/sabalo.glb',
+    fallbackColor: 0x9FB2BF,
+    flips: { x: false, y: false, z: true },
+    size: 'medium', abundance: 'veryCommon', speed: 'medium', water: 'bottom', shore: 'near'
+  },
+  {
+    key: 'pacu',
+    displayName: 'Pacú (Piaractus mesopotamicus)',
+    glb: '/game-assets/sub/fish/pacu.glb',
+    fallbackColor: 0xA14A2E,
+    flips: { x: false, y: false, z: true },
+    size: 'medium', abundance: 'usual', speed: 'medium', water: 'surface', shore: 'mid'
+  },
+  {
+    key: 'armado_chancho',
+    displayName: 'Armado chancho (Pterodoras granulosus)',
+    glb: '/game-assets/sub/fish/armado_chancho.glb',
+    fallbackColor: 0x6D5D4B,
+    flips: { x: false, y: false, z: false },
+    size: 'medium', abundance: 'usual', speed: 'slow', water: 'bottom', shore: 'deep'
+  },
+  {
+    key: 'palometa_brava',
+    displayName: 'Palometa brava (Serrasalmus maculatus)',
+    glb: '/game-assets/sub/fish/palometa_brava.glb',
+    fallbackColor: 0xD04F4F,
+    flips: { x: false, y: false, z: false },
+    size: 'small', abundance: 'veryCommon', speed: 'fast', water: 'surface', shore: 'near'
+  },
+  {
+    key: 'vieja_del_agua',
+    displayName: 'Vieja del agua (Hypostomus commersoni)',
+    glb: '/game-assets/sub/fish/vieja_del_agua.glb',
+    fallbackColor: 0x556B2F,
+    flips: { x: false, y: false, z: false },
+    size: 'medium', abundance: 'veryCommon', speed: 'slow', water: 'bottom', shore: 'mid'
+  },
+  {
+    key: 'surubi_pintado',
+    displayName: 'Surubí pintado (Pseudoplatystoma corruscans)',
+    glb: '/game-assets/sub/fish/surubi_pintado.glb',
+    fallbackColor: 0xC0C0C0,
+    flips: { x: false, y: false, z: true },
+    size: 'large', abundance: 'scarce', speed: 'medium', water: 'midwater', shore: 'deep'
+  },
+  {
+    key: 'raya_negra',
+    displayName: 'Raya negra (Potamotrygon spp.)',
+    glb: '/game-assets/sub/fish/raya_negra.glb',
+    fallbackColor: 0x222222,
+    flips: { x: false, y: true, z: false }, // many ray models are flat with Y up
+    size: 'medium', abundance: 'usual', speed: 'slow', water: 'bottom', shore: 'near'
+  }
+];
+
+/* -------------------------------------------------------------
+ * Single source of truth: explicit world & behavior parameters
+ * Place any tunables here; everything else reads from this block.
+ * ------------------------------------------------------------- */
+const DEFAULT_PARAMS = {
+  /** Camera pose (initial) & world orientation */
+  start: { x: 80.0, y: -6.542, z: 4.291, yawDeg: -90 },
+
+  /** World hard limits (explicit, non-derived) */
+  surfaceLevel: 5.722,   // y of the water surface plane
+  floorLevel:  -15.05,   // y of riverbed (camera min Y and swimbox min Y)
+  shoreLevel:  40.0,     // x of shoreline (swimbox min X)
+  leftLimit:   -60.0,    // z min for both camera and swimbox
+  rightLimit:   60.0,    // z max for both camera and swimbox
+
+  /** Camera constraints aligned to world limits */
+  cameraSurfaceMargin: 0.5,   // how much camera may go above surfaceLevel
+  cameraFloorMargin:  4.0,    // how much camera must stay above floorLevel
+  cameraLeftMargin:   40.0,    // how far from leftLimit (Z min) the camera is kept
+  cameraRightMargin:  40.0,    // how far from rightLimit (Z max) the camera is kept
+  cameraXBounds: [-300, 300], // x soft bounds; shoreLevel still acts as hard min
+
+  /** Mouse-driven camera motion (x = shore↔deep, y = up↔down) */
+  speeds: { x: 8.0, y: 10.0 },
+  responseCurve: { x: 1.0, y: 1.35 },
+  deadzone: 0.08,
+  damping: 0.15,
+
+  /** Visuals */
+  skyColor: 0x87ceeb,
+  waterColor: 0x0a1a3a,
+  waterSurfaceOpacity: 0.8,
+
+  /** Fog (enabled when camera is UNDER the surfaceLevel) */
+  fogNear: 5.0,   // distance where fog starts (no hidden derivation)
+  fogFar:  60.0,  // distance where fog fully obscures
+
+  /** Base model scale and tiling (floor/walls GLB) */
+  overrideScale: 129.36780721031408, // explicit scale; if null, scale to modelLongestTarget
+  modelLongestTarget: 129.368,
+  tiling: { countEachSide: 5, gap: -20.0 },
+
+  /** Fish baseline behavior (species modify around these) */
+  fish: {
+    speedMin: 2.0,
+    speedMax: 4.0,
+    accel: 8.0,
+    separationRadius: 2.0,
+    separationStrength: 1.2,
+    targetReachDist: 1.5,
+    retargetTime: [4.0, 8.0], // [min, max] seconds
+    fallbackDims: { x: 1.6, y: 0.4, z: 0.5 },
+  },
+
+  /**
+   * Fish position biasing inside the swimBox:
+   * Means are fractional positions along the respective axis of the swimBox.
+   *   X means refer to shore→camera span (minX→maxX).
+   *   Y means refer to floor→surface span (minY→maxY).
+   * Standard deviations are *fractions* of the corresponding span.
+   *
+   * Defaults: σ = 0 for X and Y to remove randomness for debugging.
+   */
+  fishPositionBias: {
+    meansX: { near: 0.15,  mid: 0.50, deep: 0.85 },
+    sigmaX: { near: 0.20,  mid: 0.20, deep: 0.20 }, // set >0 later (e.g., 0.10)
+    meansY: { surface: 0.92, midwater: 0.50, bottom: 0.05 },
+    sigmaY: { surface: 0.20, midwater: 0.20, bottom: 0.20 }, // set >0 later (e.g., 0.12)
+  },
+};
+
+/* ========================================================================== */
+/* Fish species & agent implementation (unchanged behavior, clearer mapping)  */
+/* ========================================================================== */
+
+class FishSpecies {
+  constructor(def, scene, baseFishParams, positionBias) {
+    this.def = def;
+    this.scene = scene;
+    this.base = baseFishParams;
+
+    this.sizeScale  = SizeScale[def.size] || 1;
+    this.speedScale = SpeedScale[def.speed] || 1;
+    this.count      = AbundanceCount[def.abundance] || 10;
+
+    this.biasXMean  = positionBias.meansX[def.shore];
+    this.biasXSigma = positionBias.sigmaX[def.shore];
+    this.biasYMean  = positionBias.meansY[def.water];
+    this.biasYSigma = positionBias.sigmaY[def.water];
+
+    this.template = null;
+    this.usesFallback = false;
+  }
+
+  async ensureTemplate() {
+    if (this.template) return this.template;
+    try {
+      const gltf = await AssetLoader.gltf(this.def.glb);
+      const root = (gltf.scene || gltf.scenes?.[0])?.clone(true);
+      if (root) {
+        this.template = root;
+        this.usesFallback = false;
+        return this.template;
+      }
+    } catch(_) { /* fallthrough to fallback */ }
+
+    // Fallback: colored prism
+    const dims = this.base.fallbackDims;
+    const geo = new THREE.BoxGeometry(dims.x, dims.y, dims.z);
+    const mat = new THREE.MeshStandardMaterial({
+      color: this.def.fallbackColor,
+      metalness: 0.1,
+      roughness: 0.6
+    });
+    this.template = new THREE.Mesh(geo, mat);
+    this.usesFallback = true;
+    return this.template;
+  }
+
+  /** Create a fully initialized agent for this species */
+  async createAgent(swimBox) {
+    await this.ensureTemplate();
+    const mesh = this.template.clone(true);
+    
+    // Assign a unique name for raycasting
+    mesh.name = `fish_${this.def.key}_${Math.random().toString(36).substr(2, 9)}`;
+    mesh.userData.speciesKey = this.def.key;
+
+
+    // Scale by species size
+    mesh.scale.multiplyScalar(this.sizeScale);
+    this.scene.add(mesh);
+
+    const pos = this.randBiasedPoint(swimBox);
+    const speedMin = this.base.speedMin * this.speedScale;
+    const speedMax = this.base.speedMax * this.speedScale;
+    const vel = new THREE.Vector3()
+      .randomDirection()
+      .multiplyScalar(lerp(speedMin, speedMax, Math.random()));
+    const target = this.randBiasedPoint(swimBox);
+    const now = performance.now() * 0.001;
+    const ret = this.base.retargetTime;
+    const nextRetargetAt = now + lerp(ret[0], ret[1], Math.random());
+
+    const agent = new FishAgent({
+      mesh, pos, vel, target, nextRetargetAt,
+      speedMin, speedMax, species: this
+    });
+    agent.applyOrientation();
+    mesh.position.copy(pos);
+    return agent;
+  }
+
+  /**
+   * Generate a biased random point within the swimBox.
+   * - X is biased between shoreLevel (minX) and cameraLevel (maxX)
+   * - Y is biased between floorLevel (minY) and surfaceLevel (maxY)
+   * - Z has uniform distribution across [minZ, maxZ]
+   * Gaussian noise uses sigma fractions of the axis span (σ=0 => no spread).
+   */
+  randBiasedPoint(swimBox) {
+    const min = swimBox.min, max = swimBox.max;
+
+    // X (shore ↔ camera)
+    const xSpan = max.x - min.x;
+    const xMean = min.x + clamp(this.biasXMean, 0, 1) * xSpan;
+    const xSigma = this.biasXSigma * xSpan;
+    let x = xMean + (xSigma > 0 ? randn() * xSigma : 0);
+
+    // Y (floor ↔ surface)
+    const ySpan = max.y - min.y;
+    const yMean = min.y + clamp(this.biasYMean, 0, 1) * ySpan;
+    const ySigma = this.biasYSigma * ySpan;
+    let y = yMean + (ySigma > 0 ? randn() * ySigma : 0);
+
+    // Z uniform
+    let z = lerp(min.z, max.z, Math.random());
+
+    // Clamp to swimBox
+    x = clamp(x, min.x, max.x);
+    y = clamp(y, min.y, max.y);
+    z = clamp(z, min.z, max.z);
+
+    return new THREE.Vector3(x, y, z);
+  }
+}
+
+class FishAgent {
+  constructor({ mesh, pos, vel, target, nextRetargetAt, speedMin, speedMax, species }) {
+    this.mesh = mesh;
+    this.pos = pos.clone();
+    this.vel = vel.clone();
+    this.target = target.clone();
+    this.nextRetargetAt = nextRetargetAt;
+    this.speedMin = speedMin;
+    this.speedMax = speedMax;
+    this.species = species;
+
+    this._localForward = null; // cached local-space forward axis
+  }
+
+  /** Detect the longest local axis of the mesh as "forward", honoring species flips. */
+  _detectLocalForward() {
+    if (this._localForward) return this._localForward.clone();
+
+    const box = new THREE.Box3().setFromObject(this.mesh);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const axes = [
+      { v: new THREE.Vector3(1,0,0), len: size.x },
+      { v: new THREE.Vector3(0,1,0), len: size.y },
+      { v: new THREE.Vector3(0,0,1), len: size.z },
+    ];
+    axes.sort((a, b) => b.len - a.len);
+    let f = axes[0].v.clone();
+
+    // Apply declared flips
+    const { x, y, z } = this.species.def.flips;
+    if (x) f.x *= -1; if (y) f.y *= -1; if (z) f.z *= -1;
+
+    this._localForward = f.normalize();
+    return this._localForward.clone();
+  }
+
+  applyOrientation() {
+    const v = this.vel.clone();
+    if (v.lengthSq() < 1e-10) return;
+    v.normalize();
+
+    const localFwd = this._detectLocalForward();
+    const q = new THREE.Quaternion().setFromUnitVectors(localFwd, v);
+    this.mesh.quaternion.copy(q);
+  }
+}
+
+/* ========================================================================== */
+/* Deck UI for fish catching gameplay                                         */
+/* ========================================================================== */
+class Deck {
+  constructor(speciesList, speciesObjs) {
+    this.cardSeparation = 220;
+    this.modelScaleMultiplier = 2.5;
+    this.startIndex = 3;
+    this.speciesList = speciesList;
+    this.speciesObjs = speciesObjs;
+    this.cards = [];
+    this.currentIndex = Math.max(0, Math.min(this.startIndex, this.speciesList.length - 1));
+    this.isAnimating = false;
+
+    this.container = document.createElement('div');
+    this.container.id = 'deck-container';
+    document.body.appendChild(this.container);
+
+    this.silhouetteMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  }
+
+  async build() {
+    for (let i = 0; i < this.speciesList.length; i++) {
+      const speciesDef = this.speciesList[i];
+      const speciesObj = this.speciesObjs.find(s => s.def.key === speciesDef.key);
+
+      const cardEl = document.createElement('div');
+      cardEl.className = 'deck-card';
+      cardEl.dataset.speciesKey = speciesDef.key;
+
+      const canvasEl = document.createElement('canvas');
+      cardEl.appendChild(canvasEl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'species-name';
+      nameEl.textContent = speciesDef.displayName;
+      cardEl.appendChild(nameEl);
+
+      const counterEl = document.createElement('div');
+      counterEl.className = 'catch-counter';
+      counterEl.textContent = 'Encontrados: 0';
+      cardEl.appendChild(counterEl);
+
+      this.container.appendChild(cardEl);
+
+      const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(150, 100, false);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(50, 1.5, 0.1, 100);
+      camera.position.z = 3;
+
+      const light = new THREE.AmbientLight(0xffffff, 2);
+      scene.add(light);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+      dirLight.position.set(2, 5, 3);
+      scene.add(dirLight);
+
+      await speciesObj.ensureTemplate();
+      const model = speciesObj.template.clone(true);
+      
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      model.scale.multiplyScalar(this.modelScaleMultiplier / maxDim);
+
+      box.setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      model.position.sub(center);
+
+      scene.add(model);
+
+      this.cards.push({
+        key: speciesDef.key,
+        element: cardEl,
+        renderer,
+        scene,
+        camera,
+        model,
+        counterEl,
+        nameEl,
+        revealed: false,
+        count: 0,
+        originalMaterials: this.cloneMaterials(model)
+      });
+      
+      this.setSilhouette(i);
+    }
+    this.updateCarousel();
+    this.container.style.opacity = 1;
+  }
+
+  cloneMaterials(model) {
+      const map = new Map();
+      model.traverse(o => {
+          if (o.isMesh) {
+              map.set(o, o.material);
+          }
+      });
+      return map;
+  }
+
+  setSilhouette(cardIndex) {
+      const card = this.cards[cardIndex];
+      card.model.traverse(o => {
+          if (o.isMesh) {
+              o.material = this.silhouetteMaterial;
+          }
+      });
+  }
+
+  setRevealed(cardIndex) {
+      const card = this.cards[cardIndex];
+      card.revealed = true;
+      card.model.traverse(o => {
+          if (o.isMesh) {
+              o.material = card.originalMaterials.get(o);
+          }
+      });
+  }
+
+  cycle(direction) {
+    if (this.isAnimating) return;
+    this.currentIndex = (this.currentIndex + direction + this.cards.length) % this.cards.length;
+    this.updateCarousel();
+  }
+
+  updateCarousel() {
+    this.isAnimating = true;
+    this.cards.forEach((card, i) => {
+      const offset = i - this.currentIndex;
+      const isCenter = (offset === 0);
+
+      card.element.style.transform = `translateX(${offset * this.cardSeparation}px) scale(${isCenter ? 1.2 : 0.8})`;
+      card.element.style.opacity = isCenter ? '1' : '0.6';
+      card.element.style.zIndex = this.cards.length - Math.abs(offset);
+    });
+    setTimeout(() => { this.isAnimating = false }, 300); // Animation duration
+  }
+  
+  checkMatch(speciesKey) {
+    const currentCard = this.cards[this.currentIndex];
+    if (currentCard.key === speciesKey) {
+      if (!currentCard.revealed) {
+        this.setRevealed(this.currentIndex);
+      }
+      currentCard.count++;
+      currentCard.counterEl.textContent = `Caught: ${currentCard.count}`;
+      this.flashBorder(currentCard.element, 'green');
+      return true; // Match!
+    } else {
+      this.flashBorder(currentCard.element, 'red');
+      return false; // No match
+    }
+  }
+
+  flashBorder(element, color) {
+      element.classList.add(`flash-${color}`);
+      setTimeout(() => element.classList.remove(`flash-${color}`), 1000);
+  }
+
+  update(dt) {
+    this.cards.forEach(card => {
+      card.model.rotation.y += 0.5 * dt;
+      card.renderer.render(card.scene, card.camera);
+    });
+  }
+  
+  destroy() {
+      document.body.removeChild(this.container);
+  }
+}
+
+
+/* ========================================================================== */
+/* RioScene                                                                   */
+/* ========================================================================== */
+
 export class RioScene extends BaseScene {
-  constructor(app){
+  constructor(app) {
     super(app);
     this.name = 'rio';
 
-    this.params = {
-      // Pose & escala (tus valores “horneados”)
-      overrideScale: 129.36780721031408,
-      modelLongestTarget: 129.368, // ignorado si overrideScale está definido
-      start: { x: 80.0, y: -6.542, z: 4.291, yawDeg: -90 },
+    // Deep clone DEFAULT_PARAMS so runtime edits won’t mutate the constant.
+    this.params = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
 
-      // Movimiento con mouse (único control)
-      speeds: { x: 8.0, y: 10.0 },
-      responseCurve: { x: 1.0, y: 1.35 },
-      deadzone: 0.08,
-      damping: 0.15,
-
-      // Límites globales de cámara
-      boundsXZ: { x: [-300, 300], z: [0, 500] },
-      boundsY: { min: -11.05, max: 5.722 },
-
-      // Tiling lateral (cadena de modelos)
-      tiling: { countEachSide: 5, gap: -20.0 },
-
-      // Agua / fog / superficie
-      skyColor: 0x87ceeb,
-      waterColor: 0x0a1a3a,
-      waterSurfaceOffset: 0.25,
-      fogDensityHint: 0.45,
-      waterSurfaceOpacity: 0.8,
-
-      // Peces (200)
-      fish: {
-        count: 200,
-        modelPath: '/game-assets/sub/golden_fish.glb',
-        fallbackDims: { x: 1.6, y: 0.4, z: 0.5 }, // prisma si no está el glb
-        forwardAxis: 'x',     // eje largo del mesh
-        flipForward: false,   // si la cabeza es al revés, poné true
-        speedMin: 2.0,
-        speedMax: 4.0,
-        accel: 8.0,
-        separationRadius: 2.0,
-        separationStrength: 1.2,
-        targetReachDist: 1.5,
-        retargetTime: [4.0, 8.0],
-      },
-
-      // SwimBox: reglas
-      swimMinXHard: 5.152, // ← hardcodeado como pediste
-      swimMarginY: 0.4,    // clearance vs piso/superficie
-      swimSpanZFactor: 1.2 // múltiplo del ancho forward del modelo
-    };
-
-    // Input continuo (mouse)
+    // Input state (mouse axes normalized -1..+1)
     this.mouseNDC = new THREE.Vector2(0, 0);
     this.vel = new THREE.Vector2(0, 0);
     this.forward = new THREE.Vector3(0, 0, -1);
+    
+    // Raycasting for fish clicks
+    this.raycaster = new THREE.Raycaster();
+    this.clickMouse = new THREE.Vector2();
 
-    // Reutilizables
+    // Reusables
     this.tmpRight = new THREE.Vector3();
     this.tmpUp = new THREE.Vector3(0, 1, 0);
     this.tmpDelta = new THREE.Vector3();
 
-    // Escena base
+    // Scene content
     this.model = null;
     this.tilesGroup = new THREE.Group();
     this.scene.add(this.tilesGroup);
 
-    // Agua
+    // Water
     this.waterSurface = null;
-    this.waterLevelY = 0;
-    this._fogNear = 5;
-    this._fogFar = 60;
 
-    // Caja de nado (no visible, sin UI)
-    this.swimBox = new THREE.Box3(); // min/max en mundo
+    // SwimBox (world-aligned, explicit bounds)
+    this.swimBox = new THREE.Box3();
 
-    // Peces
+    // Fish containers
     this.fish = [];
+    this.speciesObjs = [];
+    
+    // Deck UI
+    this.deck = null;
   }
 
-  async mount(){
-    // Fondo + luces
+  /* --------------------------------- Lifecycle --------------------------------- */
+
+  async mount() {
+    // Background + lights
     this.scene.background = new THREE.Color(this.params.skyColor);
     const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4a5a, 1.0);
     const dir  = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -92,70 +594,85 @@ export class RioScene extends BaseScene {
     dir.castShadow = true;
     this.scene.add(hemi, dir);
 
-    // Modelo del río
-    try{
+    // Load environment model (floor/walls)
+    try {
       const gltf = await AssetLoader.gltf('/game-assets/sub/sub_floor.glb');
       this.model = gltf.scene || gltf.scenes?.[0];
-      if (this.model){
-        this.model.traverse(o=>{ if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      if (this.model) {
+        this.model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
         this.scene.add(this.model);
         this.recenterToFloor(this.model);
-        if (Number.isFinite(this.params.overrideScale)){
+
+        if (Number.isFinite(this.params.overrideScale)) {
           this.model.scale.setScalar(this.params.overrideScale);
         } else {
           this.scaleModelToLongest(this.model, this.params.modelLongestTarget);
         }
-        // bounds base
-        const L = this.getModelLongestNow(this.model);
-        if (L > 0){
-          const k = 3.0;
-          this.params.boundsXZ = { x: [-L*k, L*k], z: [-L*k, L*k] };
-        }
       }
-    }catch(err){ console.error('Error cargando sub_floor.glb', err); }
+    } catch (err) {
+      console.error('Error loading sub_floor.glb', err);
+    }
 
-    // Cámara + yaw
+    // Camera pose & yaw
     const { x, y, z, yawDeg } = this.params.start;
     this.camera.position.set(x, y, z);
     this.setYaw(yawDeg);
     this.camera.lookAt(this.camera.position.clone().add(this.forward));
 
-    // Tiling + agua + swimbox inicial
-    if (this.model){
+    // Build tiling & water after model is in the scene
+    if (this.model) {
       this.scene.updateMatrixWorld(true);
       this.rebuildTiles();
       this.buildOrUpdateWaterSurface();
-      this.updateFog();
-      this.initSwimBoxFromScene();   // setea minY/maxY/minZ/maxZ y minX; maxX se ata a la cámara
-      this.updateSwimBoxDynamic();   // asegura maxX = camera.x
     }
 
-    // Peces
-    await this.spawnFish();
-    // Asegurar que todos queden dentro de la caja inicial
-    for (const a of this.fish){
+    // Initialize explicit swimBox using the world parameters directly
+    this.initSwimBoxFromParams();
+
+    // Prepare species objects (use explicit bias block)
+    this.speciesObjs = SPECIES.map(def =>
+      new FishSpecies(def, this.scene, this.params.fish, this.params.fishPositionBias)
+    );
+    
+    // Build the Deck UI
+    this.deck = new Deck(SPECIES, this.speciesObjs);
+    await this.deck.build();
+
+    // Spawn fish by abundance
+    await this.spawnFishBySpecies();
+
+    // Ensure all agents are inside the initial swimBox
+    for (const a of this.fish) {
       this.projectInsideSwimBox(a.pos);
-      if (!this.swimBox.containsPoint(a.target)){
-        a.target = this.randPointInSwimBox();
+      if (!this.swimBox.containsPoint(a.target)) {
+        a.target = a.species.randBiasedPoint(this.swimBox);
       }
       a.mesh.position.copy(a.pos);
     }
 
     // Inputs
-    this._onMouseMove  = (e)=> this.onMouseMove(e);
-    this._onMouseLeave = ()=> this.mouseNDC.set(0,0);
+    this._onMouseMove  = (e) => this.onMouseMove(e);
+    this._onMouseLeave = () => this.mouseNDC.set(0, 0);
+    this._onMouseDown = (e) => this.onMouseDown(e);
+    this._onKeyDown = (e) => this.onKeyDown(e);
+    
     this.app.canvas.addEventListener('mousemove', this._onMouseMove);
     this.app.canvas.addEventListener('mouseleave', this._onMouseLeave);
+    this.app.canvas.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('keydown', this._onKeyDown);
   }
 
-  async unmount(){
+  async unmount() {
     this.app.canvas.removeEventListener('mousemove', this._onMouseMove);
     this.app.canvas.removeEventListener('mouseleave', this._onMouseLeave);
+    this.app.canvas.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('keydown', this._onKeyDown);
+    if (this.deck) this.deck.destroy();
   }
 
-  /* ---------- helpers de modelo ---------- */
+  /* ------------------------------- Model helpers ------------------------------- */
 
-  recenterToFloor(obj){
+  recenterToFloor(obj) {
     const box = new THREE.Box3().setFromObject(obj);
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());
@@ -163,7 +680,7 @@ export class RioScene extends BaseScene {
     obj.position.y -= box.min.y - obj.position.y;
   }
 
-  scaleModelToLongest(obj, target){
+  scaleModelToLongest(obj, target) {
     const box = new THREE.Box3().setFromObject(obj);
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
@@ -171,16 +688,7 @@ export class RioScene extends BaseScene {
     if (longest > 0) obj.scale.multiplyScalar(target / longest);
   }
 
-  getModelLongestNow(obj){
-    const box = new THREE.Box3().setFromObject(obj);
-    if (box.isEmpty()) return 0;
-    const s = box.getSize(new THREE.Vector3());
-    return Math.max(s.x, s.y, s.z);
-  }
-
-  /* ---------- tiling ---------- */
-
-  widthAlongDirectionWorld(obj, dir){
+  widthAlongDirectionWorld(obj, dir) {
     const box = new THREE.Box3().setFromObject(obj);
     if (box.isEmpty()) return 0;
     const min = box.min, max = box.max;
@@ -191,13 +699,15 @@ export class RioScene extends BaseScene {
       new THREE.Vector3(min.x, max.y, max.z), new THREE.Vector3(max.x, max.y, max.z),
     ];
     let a = +Infinity, b = -Infinity;
-    for (const c of corners){ const p = c.dot(dir); if (p<a) a=p; if (p>b) b=p; }
+    for (const c of corners) { const p = c.dot(dir); if (p < a) a = p; if (p > b) b = p; }
     return (b - a);
   }
 
-  rebuildTiles(){
+  /* ------------------------------------ Tiling ------------------------------------ */
+
+  rebuildTiles() {
     if (!this.model) return;
-    for (let i = this.tilesGroup.children.length - 1; i >= 0; i--){
+    for (let i = this.tilesGroup.children.length - 1; i >= 0; i--) {
       this.tilesGroup.remove(this.tilesGroup.children[i]);
     }
     this.scene.updateMatrixWorld(true);
@@ -205,45 +715,38 @@ export class RioScene extends BaseScene {
     const right = this.tmpRight.copy(this.forward).cross(this.tmpUp).normalize();
     const baseWidth = this.widthAlongDirectionWorld(this.model, right);
     const tileStep = baseWidth + this.params.tiling.gap;
-    this._lastTileStep = tileStep;
 
     const anchor = this.model.getWorldPosition(new THREE.Vector3());
     const n = this.params.tiling.countEachSide;
-    for (let i = 1; i <= n; i++){
+    for (let i = 1; i <= n; i++) {
       const offsetR = right.clone().multiplyScalar(+i * tileStep);
       const offsetL = right.clone().multiplyScalar(-i * tileStep);
       const r = this.model.clone(true); r.position.copy(anchor).add(offsetR); this.tilesGroup.add(r);
       const l = this.model.clone(true); l.position.copy(anchor).add(offsetL); this.tilesGroup.add(l);
     }
-
-    const totalRightSpan = Math.max(0.01, baseWidth + 2 * n * tileStep);
-    const B = Math.max(
-      Math.abs(this.params.boundsXZ.x[0]), Math.abs(this.params.boundsXZ.x[1]),
-      Math.abs(this.params.boundsXZ.z[0]), Math.abs(this.params.boundsXZ.z[1])
-    );
-    const extra = Math.max(B, totalRightSpan * 0.7);
-    this.params.boundsXZ = { x: [-extra, extra], z: [-extra, extra] };
   }
 
-  /* ---------- agua ---------- */
+  /* ------------------------------------- Water ------------------------------------ */
 
-  buildOrUpdateWaterSurface(){
-    this.waterLevelY = this.params.boundsY.max - this.params.waterSurfaceOffset;
+  buildOrUpdateWaterSurface() {
+    const y = this.params.surfaceLevel;
 
+    // Decide how wide the surface plane should be (cover visible area comfortably).
+    // We extend across the tiled width (right-left) and forward span of the base model.
     const right = this.tmpRight.copy(this.forward).cross(this.tmpUp).normalize();
-    const baseWidthRight = this.widthAlongDirectionWorld(this.model, right);
+    const baseWidthRight = this.widthAlongDirectionWorld(this.model || new THREE.Object3D(), right);
     const n = this.params.tiling.countEachSide;
     const tileStep = baseWidthRight + this.params.tiling.gap;
     const totalRightSpan = Math.max(0.01, baseWidthRight + 2 * n * tileStep);
 
     const fwd = this.forward.clone().normalize();
-    const baseWidthForward = Math.max(0.01, this.widthAlongDirectionWorld(this.model, fwd));
+    const baseWidthForward = Math.max(0.01, this.widthAlongDirectionWorld(this.model || new THREE.Object3D(), fwd));
 
     const sx = totalRightSpan * 1.1;
     const sz = baseWidthForward * 2.0;
 
-    if (!this.waterSurface){
-      const geo = new THREE.PlaneGeometry(1,1,1,1);
+    if (!this.waterSurface) {
+      const geo = new THREE.PlaneGeometry(1, 1, 1, 1);
       const mat = new THREE.MeshPhysicalMaterial({
         color: this.params.waterColor,
         transparent: true,
@@ -254,221 +757,164 @@ export class RioScene extends BaseScene {
         depthWrite: false
       });
       this.waterSurface = new THREE.Mesh(geo, mat);
-      this.waterSurface.rotation.x = -Math.PI/2;
+      this.waterSurface.rotation.x = -Math.PI / 2;
       this.scene.add(this.waterSurface);
     }
-    this.waterSurface.position.set(0, this.waterLevelY, 0);
+    this.waterSurface.position.set(0, y, 0);
     this.waterSurface.scale.set(sx, sz, 1);
-
-    // Fog near/far aproximados
-    const L = this.getModelLongestNow(this.model || new THREE.Object3D());
-    this._fogNear = 5;
-    this._fogFar  = Math.max(30, L * 1.0 * this.params.fogDensityHint);
   }
 
-  updateFog(){
-    const isUnder = (this.camera.position.y < this.waterLevelY);
-    if (isUnder){
-      if (!this.scene.fog){
-        this.scene.fog = new THREE.Fog(this.params.waterColor, this._fogNear, this._fogFar);
+  updateFog() {
+    // Fog is enabled only when camera is below the explicit surfaceLevel.
+    const isUnder = (this.camera.position.y < this.params.surfaceLevel);
+    if (isUnder) {
+      if (!this.scene.fog) {
+        this.scene.fog = new THREE.Fog(this.params.waterColor, this.params.fogNear, this.params.fogFar);
       } else {
         this.scene.fog.color.set(this.params.waterColor);
-        this.scene.fog.near = this._fogNear;
-        this.scene.fog.far  = this._fogFar;
+        this.scene.fog.near = this.params.fogNear;
+        this.scene.fog.far  = this.params.fogFar;
       }
     } else {
       this.scene.fog = null;
     }
   }
 
-  /* ---------- swimBox: inicial + update dinámico ---------- */
+  /* ----------------------------------- SwimBox ----------------------------------- */
 
-  initSwimBoxFromScene(){
-    // minX fijo (hardcoded)
-    const minX = this.params.swimMinXHard;
-
-    // Y usando límites conocidos (con pequeño margen)
-    const minY = this.params.boundsY.min + this.params.swimMarginY;
-    const maxY = this.waterLevelY - this.params.swimMarginY;
-
-    // Profundidad Z a partir del ancho "forward" del modelo
-    const fwd = this.forward.clone().normalize();
-    const spanZ = Math.max(10, this.widthAlongDirectionWorld(this.model, fwd) * this.params.swimSpanZFactor);
-    const halfZ = spanZ * 0.5;
-    const minZ = -halfZ;
-    const maxZ = +halfZ;
-
-    // maxX se setea dinámico (cámara.x), lo dejamos provisoriamente = start.x
-    const maxX = this.camera.position.x;
-
-    this.swimBox.min.set(minX, Math.min(minY, maxY), minZ);
-    this.swimBox.max.set(maxX, Math.max(minY, maxY), maxZ);
-
-    this.normalizeAndClampSwimBox();
-  }
-
-  updateSwimBoxDynamic(){
-    // maxX sigue la cámara; minX permanece fijo
-    const EPS = 0.001;
-    this.swimBox.max.x = Math.max(this.params.swimMinXHard + EPS, this.camera.position.x);
-
-    // Aseguramos que Y y Z sigan válidos (por si cambió la superficie)
-    const minY = this.params.boundsY.min + this.params.swimMarginY;
-    const maxY = this.waterLevelY - this.params.swimMarginY;
-    this.swimBox.min.y = Math.max(minY, Math.min(maxY, this.swimBox.min.y));
-    this.swimBox.max.y = Math.max(minY + EPS, Math.min(maxY, this.swimBox.max.y));
-
-    // Clamps generales
-    this.normalizeAndClampSwimBox();
-  }
-
-  normalizeAndClampSwimBox(){
-    const b = this.swimBox;
-
-    // Orden min <= max
-    if (b.min.x > b.max.x) [b.min.x, b.max.x] = [b.max.x, b.min.x];
-    if (b.min.y > b.max.y) [b.min.y, b.max.y] = [b.max.y, b.min.y];
-    if (b.min.z > b.max.z) [b.min.z, b.max.z] = [b.max.z, b.min.z];
-
-    // Clamps a límites globales
-    b.min.x = Math.max(this.params.swimMinXHard, b.min.x);
-    b.max.x = Math.max(b.min.x + 0.001, b.max.x); // evita degenerado
-    b.min.z = Math.max(this.params.boundsXZ.z[0], b.min.z);
-    b.max.z = Math.min(this.params.boundsXZ.z[1], b.max.z);
-    b.min.y = Math.max(this.params.boundsY.min, b.min.y);
-    b.max.y = Math.min(this.waterLevelY,      b.max.y);
-  }
-
-  /* ---------- peces ---------- */
-
-  async spawnFish(){
-    const p = this.params.fish;
-    let fishTemplate = null;
-    try {
-      const gltf = await AssetLoader.gltf(p.modelPath);
-      fishTemplate = (gltf.scene || gltf.scenes?.[0])?.clone(true);
-    } catch(e){
-      const g = new THREE.BoxGeometry(p.fallbackDims.x, p.fallbackDims.y, p.fallbackDims.z);
-      const m = new THREE.MeshStandardMaterial({ color: 0xffd166, metalness: 0.1, roughness: 0.6 });
-      fishTemplate = new THREE.Mesh(g, m);
-    }
-
-    const now = performance.now()*0.001;
-    for (let i=0; i<p.count; i++){
-      const mesh = fishTemplate.clone(true);
-      this.scene.add(mesh);
-
-      const pos = this.randPointInSwimBox();
-      const vel = new THREE.Vector3().randomDirection().multiplyScalar(this.randRange(p.speedMin, p.speedMax));
-      const target = this.randPointInSwimBox();
-      const nextRetargetAt = now + this.randRange(p.retargetTime[0], p.retargetTime[1]);
-      const agent = { mesh, pos, vel, target, nextRetargetAt, speedMax: this.randRange(p.speedMin, p.speedMax) };
-      mesh.position.copy(pos);
-      this.orientFishMesh(agent);
-      this.fish.push(agent);
-    }
-  }
-
-  randRange(a,b){ return a + Math.random()*(b-a); }
-
-  randPointInSwimBox(){
-    return new THREE.Vector3(
-      this.randRange(this.swimBox.min.x, this.swimBox.max.x),
-      this.randRange(this.swimBox.min.y, this.swimBox.max.y),
-      this.randRange(this.swimBox.min.z, this.swimBox.max.z)
+  /**
+   * Initialize the swimBox using the explicit world parameters — no offsets:
+   *   X: [shoreLevel, cameraLevel]  (cameraLevel = current camera x)
+   *   Y: [floorLevel, surfaceLevel]
+   *   Z: [leftLimit, rightLimit]
+   */
+  initSwimBoxFromParams() {
+    const camX = this.camera.position.x; // cameraLevel
+    this.swimBox.min.set(
+      this.params.shoreLevel,
+      this.params.floorLevel,
+      this.params.leftLimit
+    );
+    this.swimBox.max.set(
+      Math.max(this.params.shoreLevel + 0.001, camX),
+      Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel),
+      this.params.rightLimit
     );
   }
 
-  steerSeek(agent, target, intensity=1){
-    const desired = target.clone().sub(agent.pos);
-    const d = desired.length();
-    if (d < 1e-5) return new THREE.Vector3();
-    desired.normalize().multiplyScalar(agent.speedMax);
-    return desired.sub(agent.vel).multiplyScalar(intensity);
+  /**
+   * Keep swimBox aligned as the camera moves:
+   * maxX must follow the current cameraLevel (camera.position.x).
+   */
+  updateSwimBoxDynamic() {
+    const camX = this.camera.position.x; // cameraLevel
+    this.swimBox.min.x = this.params.shoreLevel;
+    this.swimBox.max.x = Math.max(this.params.shoreLevel + 0.001, camX);
+
+    this.swimBox.min.y = this.params.floorLevel;
+    this.swimBox.max.y = Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel);
+
+    this.swimBox.min.z = this.params.leftLimit;
+    this.swimBox.max.z = this.params.rightLimit;
   }
 
-  steerSeparation(agent, neighbors, radius, strength){
-    const force = new THREE.Vector3(); let count = 0;
-    for (const other of neighbors){
-      if (other === agent) continue;
-      const diff = agent.pos.clone().sub(other.pos);
-      const d2 = diff.lengthSq();
-      if (d2 > 0 && d2 < radius*radius){
-        diff.normalize().multiplyScalar(1.0/d2);
-        force.add(diff); count++;
+  /** Project a point inside current swimBox (simple clamping). */
+  projectInsideSwimBox(p) {
+    p.x = clamp(p.x, this.swimBox.min.x, this.swimBox.max.x);
+    p.y = clamp(p.y, this.swimBox.min.y, this.swimBox.max.y);
+    p.z = clamp(p.z, this.swimBox.min.z, this.swimBox.max.z);
+  }
+
+  /* ----------------------------------- Fish ----------------------------------- */
+
+  async spawnFishBySpecies() {
+    this.fish.length = 0;
+    for (const sp of this.speciesObjs) {
+      for (let i = 0; i < sp.count; i++) {
+        const agent = await sp.createAgent(this.swimBox);
+        this.fish.push(agent);
       }
     }
-    if (count>0) force.multiplyScalar(strength);
-    return force;
   }
 
-  // Empuje hacia adentro cuando el pez se acerca a las caras de la caja
-  steerContain(agent){
-    const f = new THREE.Vector3();
-    const p = agent.pos;
-    const margin = 0.8; // distancia a partir de la cual empuja
-
-    let d = p.x - this.swimBox.min.x; if (d < margin) f.x += (margin - d);
-    d = this.swimBox.max.x - p.x;     if (d < margin) f.x -= (margin - d);
-
-    d = p.y - this.swimBox.min.y;     if (d < margin) f.y += (margin - d);
-    d = this.swimBox.max.y - p.y;     if (d < margin) f.y -= (margin - d);
-
-    d = p.z - this.swimBox.min.z;     if (d < margin) f.z += (margin - d);
-    d = this.swimBox.max.z - p.z;     if (d < margin) f.z -= (margin - d);
-    return f;
+  /* --------------------------------- Input & UX --------------------------------- */
+  onKeyDown(e) {
+      if (e.key === 'ArrowRight') {
+          this.deck.cycle(1);
+      } else if (e.key === 'ArrowLeft') {
+          this.deck.cycle(-1);
+      }
   }
 
-  projectInsideSwimBox(p){
-    p.x = Math.max(this.swimBox.min.x, Math.min(this.swimBox.max.x, p.x));
-    p.y = Math.max(this.swimBox.min.y, Math.min(this.swimBox.max.y, p.y));
-    p.z = Math.max(this.swimBox.min.z, Math.min(this.swimBox.max.z, p.z));
+  onMouseDown(e) {
+    const rect = this.app.canvas.getBoundingClientRect();
+    this.clickMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.clickMouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    
+    this.raycaster.setFromCamera(this.clickMouse, this.camera);
+    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    
+    for (const intersect of intersects) {
+        let obj = intersect.object;
+        while(obj) {
+            if (obj.userData.speciesKey) {
+                const isMatch = this.deck.checkMatch(obj.userData.speciesKey);
+                if (isMatch) {
+                    this.catchFish(obj);
+                }
+                return; // only process the first fish clicked
+            }
+            obj = obj.parent;
+        }
+    }
   }
 
-  orientFishMesh(agent){
-    const pf = this.params.fish;
-    const v = agent.vel.clone();
-    if (v.lengthSq() < 1e-8) return;
-    v.normalize();
-
-    const forward =
-      pf.forwardAxis === 'x' ? new THREE.Vector3( 1,0,0) :
-      pf.forwardAxis === 'z' ? new THREE.Vector3( 0,0,1) :
-      new THREE.Vector3(1,0,0);
-    if (pf.flipForward) forward.multiplyScalar(-1);
-
-    const q = new THREE.Quaternion().setFromUnitVectors(forward, v);
-    agent.mesh.quaternion.copy(q);
-    agent.mesh.position.copy(agent.pos);
+  catchFish(fishMesh) {
+    const agentIndex = this.fish.findIndex(a => a.mesh === fishMesh);
+    if (agentIndex !== -1) {
+        // Remove from simulation array
+        this.fish.splice(agentIndex, 1);
+        // Remove from scene
+        this.scene.remove(fishMesh);
+        
+        // Optional: dispose of geometry and material to free memory
+        if (fishMesh.geometry) fishMesh.geometry.dispose();
+        if (fishMesh.material) {
+            if (Array.isArray(fishMesh.material)) {
+                fishMesh.material.forEach(m => m.dispose());
+            } else {
+                fishMesh.material.dispose();
+            }
+        }
+    }
   }
 
-  /* ---------- input mouse ---------- */
 
-  onMouseMove(e){
+  onMouseMove(e) {
     const rect = this.app.canvas.getBoundingClientRect();
     this.mouseNDC.x = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     this.mouseNDC.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
   }
-  axis(a, deadzone, expo=1){
+
+  axis(a, deadzone, expo = 1) {
     if (Math.abs(a) <= deadzone) return 0;
     const t = (Math.abs(a) - deadzone) / (1 - deadzone);
     const s = Math.min(Math.max(t, 0), 1);
     const curved = Math.pow(s, expo);
-    return Math.sign(a) * (curved*curved*(3 - 2*curved));
+    return Math.sign(a) * (curved * curved * (3 - 2 * curved));
   }
-  clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
 
-  /* ---------- ciclo ---------- */
-
-  setYaw(deg){
+  setYaw(deg) {
     const yaw = THREE.MathUtils.degToRad(deg);
     this.forward.set(Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
   }
 
-  update(dt){
+  /* ----------------------------------- Update ----------------------------------- */
+
+  update(dt) {
     const { deadzone, damping, speeds, responseCurve } = this.params;
 
-    // Cámara por mouse
+    // Mouse-driven camera velocity in local right/up axes
     const ax = this.axis(this.mouseNDC.x, deadzone, responseCurve.x);
     const ay = this.axis(this.mouseNDC.y, deadzone, responseCurve.y);
     const targetVx = ax * speeds.x;
@@ -476,74 +922,146 @@ export class RioScene extends BaseScene {
     this.vel.x += (targetVx - this.vel.x) * damping;
     this.vel.y += (targetVy - this.vel.y) * damping;
 
+    // Move camera along right (x) and up (y)
     this.tmpRight.copy(this.forward).cross(this.tmpUp).normalize();
     const deltaX = this.tmpDelta.copy(this.tmpRight).multiplyScalar(this.vel.x * dt);
     const deltaY = this.tmpUp.clone().multiplyScalar(this.vel.y * dt);
 
     const p = this.camera.position.clone().add(deltaX);
-    const { boundsXZ, boundsY } = this.params;
-    p.x = this.clamp(p.x, boundsXZ.x[0], boundsXZ.x[1]);
-    p.z = this.clamp(p.z, boundsXZ.z[0], boundsXZ.z[1]);
-    const newY = this.camera.position.y + deltaY.y;
-    this.camera.position.set(p.x, this.clamp(newY, boundsY.min, boundsY.max), p.z);
+    const xMinSoft = this.params.cameraXBounds[0];
+    const xMaxSoft = this.params.cameraXBounds[1];
+
+    // Hard alignment to shoreLevel for min X (shore can never be crossed)
+    const xMinHard = this.params.shoreLevel;
+
+    // Apply X clamps: first soft bounds, then ensure ≥ shoreLevel
+    p.x = clamp(p.x, xMinSoft, xMaxSoft);
+    p.x = Math.max(p.x, xMinHard);
+
+    // Z clamp with camera margins (does NOT affect swimBox limits)
+    {
+      const zMin = this.params.leftLimit  + this.params.cameraLeftMargin;
+      const zMax = this.params.rightLimit - this.params.cameraRightMargin;
+      // protect against inverted margins
+      const safeMin = Math.min(zMin, zMax - 0.001);
+      const safeMax = Math.max(zMax, zMin + 0.001);
+      p.z = clamp(p.z, safeMin, safeMax);
+    }
+
+    // Y limits: (floorLevel + cameraFloorMargin) ≤ Y ≤ (surfaceLevel + cameraSurfaceMargin)
+    const yMin = this.params.floorLevel + this.params.cameraFloorMargin;
+    const yMax = this.params.surfaceLevel + this.params.cameraSurfaceMargin;
+    const newY = clamp(this.camera.position.y + deltaY.y, yMin, yMax);
+
+    // Apply camera transform
+    this.camera.position.set(p.x, newY, p.z);
     this.camera.lookAt(this.camera.position.clone().add(this.forward));
 
-    // SwimBox dinámica (maxX = cámara.x)
+    // Update swimBox to follow the cameraLevel in X
     this.updateSwimBoxDynamic();
 
-    // Peces
+    // Update fish
     if (this.fish.length) this.updateFish(dt);
 
-    // Fog
+    // Update fog with explicit rules
     this.updateFog();
+    
+    // Update the deck UI
+    if (this.deck) this.deck.update(dt);
   }
 
-  updateFish(dt){
+  updateFish(dt) {
     const pf = this.params.fish;
-    const now = performance.now()*0.001;
+    const now = performance.now() * 0.001;
 
-    for (const a of this.fish){
-      // Retarget si llegó / timeout / target fuera de caja (por cambios en maxX)
+    for (const a of this.fish) {
+      // Retarget if reached, timed out, or target left the box (due to camera X change)
       const toTarget = a.target.clone().sub(a.pos);
-      if (toTarget.length() < pf.targetReachDist || now >= a.nextRetargetAt || !this.swimBox.containsPoint(a.target)){
-        a.target = this.randPointInSwimBox();
-        a.nextRetargetAt = now + this.randRange(pf.retargetTime[0], pf.retargetTime[1]);
+      if (toTarget.length() < pf.targetReachDist || now >= a.nextRetargetAt || !this.swimBox.containsPoint(a.target)) {
+        a.target = a.species.randBiasedPoint(this.swimBox);
+        const ret = pf.retargetTime; a.nextRetargetAt = now + lerp(ret[0], ret[1], Math.random());
       }
 
-      // Steering
+      // Steering forces
       const fSeek = this.steerSeek(a, a.target, 1.0);
       const fSep  = this.steerSeparation(a, this.fish, pf.separationRadius, pf.separationStrength);
-      const fBox  = this.steerContain(a).multiplyScalar(6.0); // empuje hacia adentro
+      const fBox  = this.steerContain(a).multiplyScalar(6.0); // push back inside
 
-      // Sumar y limitar por aceleración
+      // Sum and clamp by max accel
       const force = new THREE.Vector3().add(fSeek).add(fSep).add(fBox);
       if (force.length() > pf.accel) force.setLength(pf.accel);
 
-      // Integrar velocidad + clamp speed
+      // Integrate velocity and clamp speed per species
       a.vel.addScaledVector(force, dt);
       const spd = a.vel.length();
-      const max = a.speedMax, min = Math.min(pf.speedMin, max*0.9);
+      const max = a.speedMax, min = Math.min(a.speedMin, max * 0.9);
       if (spd > max) a.vel.setLength(max);
       else if (spd < min) a.vel.setLength(min);
 
-      // Integrar posición + proyectar dentro de caja (por si cambió maxX)
+      // Integrate position and clamp to swimBox
       a.pos.addScaledVector(a.vel, dt);
       this.projectInsideSwimBox(a.pos);
 
-      // Aplicar a mesh + orientar
-      this.orientFishMesh(a);
+      // Apply to mesh with orientation by longest axis
+      a.applyOrientation();
+      a.mesh.position.copy(a.pos);
     }
   }
 
-  onResize(w, h){
+  /* ------------------------------- Steering helpers ------------------------------ */
+
+  steerSeek(agent, target, intensity = 1) {
+    const desired = target.clone().sub(agent.pos);
+    const d = desired.length();
+    if (d < 1e-5) return new THREE.Vector3();
+    desired.normalize().multiplyScalar(agent.speedMax);
+    return desired.sub(agent.vel).multiplyScalar(intensity);
+  }
+
+  steerSeparation(agent, neighbors, radius, strength) {
+    const force = new THREE.Vector3(); let count = 0;
+    const r2 = radius * radius;
+    for (const other of neighbors) {
+      if (other === agent) continue;
+      const diff = agent.pos.clone().sub(other.pos);
+      const d2 = diff.lengthSq();
+      if (d2 > 0 && d2 < r2) {
+        diff.normalize().multiplyScalar(1.0 / d2);
+        force.add(diff); count++;
+      }
+    }
+    if (count > 0) force.multiplyScalar(strength);
+    return force;
+  }
+
+  steerContain(agent) {
+    // Simple inward push when at/near the box faces (zero margin => only when outside)
+    const f = new THREE.Vector3();
+    const p = agent.pos;
+    const b = this.swimBox;
+
+    let d = p.x - b.min.x; if (d < 0) f.x += -d;
+    d = b.max.x - p.x;     if (d < 0) f.x -= -d;
+
+    d = p.y - b.min.y;     if (d < 0) f.y += -d;
+    d = b.max.y - p.y;     if (d < 0) f.y -= -d;
+
+    d = p.z - b.min.z;     if (d < 0) f.z += -d;
+    d = b.max.z - p.z;     if (d < 0) f.z -= -d;
+
+    return f;
+  }
+
+  /* ---------------------------------- Resize ---------------------------------- */
+
+  onResize(w, h) {
     super.onResize(w, h);
     this.camera.lookAt(this.camera.position.clone().add(this.forward));
     if (this.model) {
       this.scene.updateMatrixWorld(true);
       this.rebuildTiles();
       this.buildOrUpdateWaterSurface();
-      this.updateFog();
-      // swimBox: mantener reglas (minX hard, maxX = cam.x)
+      // Keep swimBox aligned to explicit params and current cameraLevel
       this.updateSwimBoxDynamic();
     }
   }

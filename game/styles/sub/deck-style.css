@@ -1,0 +1,74 @@
+/* deck-style.css */
+
+#deck-container {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+
+.deck-card {
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  background-color: rgba(0, 20, 40, 0.7);
+  border: 2px solid #5a8eaf;
+  border-radius: 10px;
+  transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  pointer-events: auto; /* Re-enable pointer events for cards */
+}
+
+.deck-card canvas {
+  width: 150px;
+  height: 100px;
+}
+
+.species-name {
+  font-size: 14px;
+  margin-top: 5px;
+  padding: 0 5px;
+}
+
+.catch-counter {
+  font-size: 12px;
+  margin-top: 5px;
+  color: #aedff7;
+}
+
+/* Flash animations */
+.deck-card.flash-green {
+  animation: flash-green-border 1s ease-out;
+}
+
+.deck-card.flash-red {
+  animation: flash-red-border 1s ease-out;
+}
+
+@keyframes flash-green-border {
+  0%, 100% { border-color: #5a8eaf; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+  50% { border-color: #4CAF50; box-shadow: 0 0 20px #4CAF50; }
+}
+
+@keyframes flash-red-border {
+  0%, 100% { border-color: #5a8eaf; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+  50% { border-color: #F44336; box-shadow: 0 0 20px #F44336; }
+}
