@@ -46,6 +46,41 @@ const randn = () => {
 };
 
 /* -------------------------------------------------------------
+ * Spatial hash (O(n) neighborhood queries)
+ * ------------------------------------------------------------- */
+class SpatialHash {
+  constructor(cellSize = 3.0) {
+    this.s = cellSize;   // tune ~ separationRadius
+    this.map = new Map();
+  }
+  _key(v) {
+    const s = this.s;
+    return `${Math.floor(v.x/s)},${Math.floor(v.y/s)},${Math.floor(v.z/s)}`;
+  }
+  rebuild(agents) {
+    this.map.clear();
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      const k = this._key(a.pos);
+      let bin = this.map.get(k);
+      if (!bin) { bin = []; this.map.set(k, bin); }
+      bin.push(a);
+    }
+  }
+  neighbors(p) {
+    const res = [];
+    const s = this.s;
+    const cx = Math.floor(p.x/s), cy = Math.floor(p.y/s), cz = Math.floor(p.z/s);
+    for (let dx=-1; dx<=1; dx++) for (let dy=-1; dy<=1; dy++) for (let dz=-1; dz<=1; dz++) {
+      const bin = this.map.get(`${cx+dx},${cy+dy},${cz+dz}`);
+      if (bin) res.push(...bin);
+    }
+    return res;
+  }
+}
+
+
+/* -------------------------------------------------------------
  * Param scales and species configuration
  * ------------------------------------------------------------- */
 const SizeScale       = { small: 1.0,  medium: 1.5,  large: 2.0 };
@@ -152,6 +187,7 @@ const DEFAULT_PARAMS = {
 
   /** Mouse-driven camera motion (x = shore↔deep, y = up↔down) */
   speeds: { x: 8.0, y: 10.0 },
+  wheelStepX: 2.0,
   responseCurve: { x: 1.0, y: 1.35 },
   deadzone: 0.08,
   damping: 0.15,
@@ -259,7 +295,6 @@ class FishSpecies {
 
     // Scale by species size
     mesh.scale.multiplyScalar(this.sizeScale);
-    this.scene.add(mesh);
 
     const pos = this.randBiasedPoint(swimBox);
     const speedMin = this.base.speedMin * this.speedScale;
@@ -511,7 +546,7 @@ class Deck {
         this.setRevealed(this.currentIndex);
       }
       currentCard.count++;
-      currentCard.counterEl.textContent = `Caught: ${currentCard.count}`;
+      currentCard.counterEl.textContent = `Encontrados: ${currentCard.count}`;
       this.flashBorder(currentCard.element, 'green');
       return true; // Match!
     } else {
@@ -581,6 +616,24 @@ export class RioScene extends BaseScene {
     
     // Deck UI
     this.deck = null;
+
+    // Spatial hash + throttled steering
+    this._hash = new SpatialHash(3.0); // will be reset to separationRadius later
+    this._sepAccum = 0;
+    this._sepHz = 30;
+
+    // ------ Instancing support (all species) ------
+    this.instancedGroup = new THREE.Group();
+    this.instancedGroup.name = 'instanced-fish';
+    this.scene.add(this.instancedGroup);
+
+    // Map: speciesKey -> { inst, activeCount, agents, agentIndexByInstanceId }
+    this.instanced = new Map();
+
+    // (Optional) keep a non-instanced group; may stay empty now
+    this.fishGroup = new THREE.Group();
+    this.fishGroup.name = 'fish-group';
+    this.scene.add(this.fishGroup);
   }
 
   /* --------------------------------- Lifecycle --------------------------------- */
@@ -591,7 +644,7 @@ export class RioScene extends BaseScene {
     const hemi = new THREE.HemisphereLight(0xffffff, 0x3a4a5a, 1.0);
     const dir  = new THREE.DirectionalLight(0xffffff, 1.2);
     dir.position.set(8, 12, 6);
-    dir.castShadow = true;
+    dir.castShadow = false;
     this.scene.add(hemi, dir);
 
     // Load environment model (floor/walls)
@@ -599,7 +652,7 @@ export class RioScene extends BaseScene {
       const gltf = await AssetLoader.gltf('/game-assets/sub/sub_floor.glb');
       this.model = gltf.scene || gltf.scenes?.[0];
       if (this.model) {
-        this.model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        this.model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
         this.scene.add(this.model);
         this.recenterToFloor(this.model);
 
@@ -617,7 +670,12 @@ export class RioScene extends BaseScene {
     const { x, y, z, yawDeg } = this.params.start;
     this.camera.position.set(x, y, z);
     this.setYaw(yawDeg);
+    this.params.swimBoxMaxX = this.params.start.x;
     this.camera.lookAt(this.camera.position.clone().add(this.forward));
+
+    this.camera.near = 0.1;
+    this.camera.far  = 120;   // try 80–150; lower = faster
+    this.camera.updateProjectionMatrix();
 
     // Build tiling & water after model is in the scene
     if (this.model) {
@@ -660,6 +718,9 @@ export class RioScene extends BaseScene {
     this.app.canvas.addEventListener('mouseleave', this._onMouseLeave);
     this.app.canvas.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('keydown', this._onKeyDown);
+
+    this._onWheel = (e) => this.onWheel(e);
+    this.app.canvas.addEventListener('wheel', this._onWheel, { passive: false });
   }
 
   async unmount() {
@@ -667,6 +728,7 @@ export class RioScene extends BaseScene {
     this.app.canvas.removeEventListener('mouseleave', this._onMouseLeave);
     this.app.canvas.removeEventListener('mousedown', this._onMouseDown);
     window.removeEventListener('keydown', this._onKeyDown);
+    this.app.canvas.removeEventListener('wheel', this._onWheel);
     if (this.deck) this.deck.destroy();
   }
 
@@ -789,14 +851,14 @@ export class RioScene extends BaseScene {
    *   Z: [leftLimit, rightLimit]
    */
   initSwimBoxFromParams() {
-    const camX = this.camera.position.x; // cameraLevel
+    const maxX = (this.params.swimBoxMaxX ?? this.params.start.x);
     this.swimBox.min.set(
       this.params.shoreLevel,
       this.params.floorLevel,
       this.params.leftLimit
     );
     this.swimBox.max.set(
-      Math.max(this.params.shoreLevel + 0.001, camX),
+      Math.max(this.params.shoreLevel + 0.001, maxX),
       Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel),
       this.params.rightLimit
     );
@@ -807,10 +869,13 @@ export class RioScene extends BaseScene {
    * maxX must follow the current cameraLevel (camera.position.x).
    */
   updateSwimBoxDynamic() {
-    const camX = this.camera.position.x; // cameraLevel
-    this.swimBox.min.x = this.params.shoreLevel;
-    this.swimBox.max.x = Math.max(this.params.shoreLevel + 0.001, camX);
+    const maxX = (this.params.swimBoxMaxX ?? this.params.start.x);
 
+    // X stays frozen
+    this.swimBox.min.x = this.params.shoreLevel;
+    this.swimBox.max.x = Math.max(this.params.shoreLevel + 0.001, maxX);
+
+    // Y, Z reflect explicit params (in case you tweak them live)
     this.swimBox.min.y = this.params.floorLevel;
     this.swimBox.max.y = Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel);
 
@@ -829,11 +894,54 @@ export class RioScene extends BaseScene {
 
   async spawnFishBySpecies() {
     this.fish.length = 0;
+
     for (const sp of this.speciesObjs) {
+      await sp.ensureTemplate();
+
+      // Create InstancedMesh for this species (we instance ALL species)
+      const bag = this._createInstancedForSpecies(sp, sp.count);
+
+      if (!bag) {
+        // Fallback: non-instanced if no mesh found in template
+        for (let i = 0; i < sp.count; i++) {
+          const agent = await sp.createAgent(this.swimBox);
+          this.fish.push(agent);
+          this.fishGroup.add(agent.mesh);
+        }
+        continue;
+      }
+
+      // Spawn agents; don't add their meshes to scene; we write instance matrices
       for (let i = 0; i < sp.count; i++) {
         const agent = await sp.createAgent(this.swimBox);
+
+        // mark as instanced
+        agent.instanceId = bag.activeCount;
+        // hide standalone mesh (we keep it only for scale/orientation queries)
+        agent.mesh.visible = false;
+
+        // push to global agents list
         this.fish.push(agent);
+
+        // track in per-species bag
+        bag.agents.push(agent);
+        bag.instances[agent.instanceId] = agent; 
+
+        // compose initial matrix so fish appear immediately
+        const v = agent.vel.clone();
+        if (v.lengthSq() > 1e-10) v.normalize();
+        const localFwd = agent._detectLocalForward ? agent._detectLocalForward() : new THREE.Vector3(1, 0, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(localFwd, v);
+        const m = new THREE.Matrix4();
+        const scl = agent.mesh?.scale || new THREE.Vector3(1, 1, 1);
+        m.compose(agent.pos, q, scl);
+        bag.inst.setMatrixAt(agent.instanceId, m);
+
+        bag.activeCount++;
       }
+
+      bag.inst.count = bag.activeCount;
+      bag.inst.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -846,48 +954,133 @@ export class RioScene extends BaseScene {
       }
   }
 
+    onWheel(e) {
+      // Scroll up (deltaY < 0) => decrease X; scroll down => increase X.
+      // Limits: min = swimBox.min.x (shore), max = starting camera X.
+      e.preventDefault();
+
+      const step = this.params.wheelStepX ?? 2.0;
+      const dir = Math.sign(e.deltaY); // +1 when scrolling down, -1 up
+
+      // compute new X
+      const minX = (this.swimBox?.min?.x ?? this.params.shoreLevel);
+      const maxX = this.params.start.x;
+      let newX = this.camera.position.x + (dir > 0 ? +step : -step);
+
+      // clamp and apply
+      newX = clamp(newX, minX, maxX);
+      this.camera.position.x = newX;
+
+      // keep systems in sync
+      this.updateSwimBoxDynamic();
+      this.camera.lookAt(this.camera.position.clone().add(this.forward));
+    }
+
+
   onMouseDown(e) {
     const rect = this.app.canvas.getBoundingClientRect();
     this.clickMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this.clickMouse.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
     
     this.raycaster.setFromCamera(this.clickMouse, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-    
+    //const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    const raycastTargets = [
+      ...this.fishGroup.children,     // non-instanced (may be empty)
+      ...this.instancedGroup.children // InstancedMesh per species
+    ];
+    const intersects = this.raycaster.intersectObjects(raycastTargets, true);
+
     for (const intersect of intersects) {
-        let obj = intersect.object;
-        while(obj) {
-            if (obj.userData.speciesKey) {
-                const isMatch = this.deck.checkMatch(obj.userData.speciesKey);
-                if (isMatch) {
-                    this.catchFish(obj);
-                }
-                return; // only process the first fish clicked
-            }
-            obj = obj.parent;
+      let obj = intersect.object;
+
+      // InstancedMesh path
+      if (obj.isInstancedMesh && obj.userData.speciesKey && Number.isInteger(intersect.instanceId)) {
+        const speciesKey = obj.userData.speciesKey;
+        const bag = this.instanced.get(speciesKey);
+        if (bag) {
+          const agent = bag.instances[intersect.instanceId];
+          if (agent) {
+            const isMatch = this.deck.checkMatch(speciesKey);
+            if (isMatch) this.catchFish(agent); // pass the Agent
+            return;
+          }
         }
+      }
+
+      // Non-instanced path (walk up parents to find a mesh with a speciesKey)
+      while (obj) {
+        if (obj.userData.speciesKey) {
+          const isMatch = this.deck.checkMatch(obj.userData.speciesKey);
+          if (isMatch) this.catchFish(obj); // pass the Mesh
+          return;
+        }
+        obj = obj.parent;
+      }
     }
   }
 
-  catchFish(fishMesh) {
-    const agentIndex = this.fish.findIndex(a => a.mesh === fishMesh);
-    if (agentIndex !== -1) {
-        // Remove from simulation array
+  catchFish(target) {
+    // NON-INSTANCED: Mesh
+    if (target && target.isMesh) {
+      const agentIndex = this.fish.findIndex(a => a.mesh === target);
+      if (agentIndex !== -1) {
+        const agent = this.fish[agentIndex];
         this.fish.splice(agentIndex, 1);
-        // Remove from scene
-        this.scene.remove(fishMesh);
-        
-        // Optional: dispose of geometry and material to free memory
-        if (fishMesh.geometry) fishMesh.geometry.dispose();
-        if (fishMesh.material) {
-            if (Array.isArray(fishMesh.material)) {
-                fishMesh.material.forEach(m => m.dispose());
-            } else {
-                fishMesh.material.dispose();
-            }
+        this.fishGroup.remove(target);
+
+        if (target.geometry) target.geometry.dispose();
+        if (target.material) {
+          if (Array.isArray(target.material)) target.material.forEach(m => m.dispose());
+          else target.material.dispose();
         }
+      }
+      return;
     }
+
+    // INSTANCED: Agent
+    const agent = target;
+    if (!agent || agent.instanceId === undefined) return;
+
+    const key = agent.species.def.key;
+    const bag = this.instanced.get(key);
+    if (!bag) return;
+
+    const lastActiveId = bag.activeCount - 1;
+    const id = agent.instanceId;
+
+    if (id !== lastActiveId) {
+      // 1) swap matrices (visual)
+      const mA = new THREE.Matrix4();
+      const mB = new THREE.Matrix4();
+      bag.inst.getMatrixAt(id, mA);
+      bag.inst.getMatrixAt(lastActiveId, mB);
+      bag.inst.setMatrixAt(id, mB);
+      bag.inst.setMatrixAt(lastActiveId, mA);
+
+      // 2) swap agents (logic)
+      const other = bag.instances[lastActiveId];
+      if (other) {
+        bag.instances[id] = other;
+        other.instanceId = id;
+      }
+      // put the caught agent at the tail (about to be trimmed)
+      bag.instances[lastActiveId] = agent;
+      agent.instanceId = lastActiveId;
+    }
+
+    // 3) shrink the active draw range
+    bag.activeCount = Math.max(0, bag.activeCount - 1);
+    bag.inst.count = bag.activeCount;
+    bag.inst.instanceMatrix.needsUpdate = true;
+
+    // 4) clear the now-inactive slot so raycasts won't find a stale agent
+    bag.instances[lastActiveId] = undefined;
+
+    // 5) drop from the global list (by reference, not by index)
+    const idx = this.fish.indexOf(agent);
+    if (idx !== -1) this.fish.splice(idx, 1);
   }
+
 
 
   onMouseMove(e) {
@@ -974,6 +1167,14 @@ export class RioScene extends BaseScene {
     const pf = this.params.fish;
     const now = performance.now() * 0.001;
 
+    this._sepAccum += dt;
+    const doSeparationTick = (this._sepAccum >= (1 / this._sepHz));
+    if (doSeparationTick) {
+      this._sepAccum = 0;
+      this._hash.s = Math.max(1e-3, pf.separationRadius); // cell ~= radius
+      this._hash.rebuild(this.fish);
+    }
+
     for (const a of this.fish) {
       // Retarget if reached, timed out, or target left the box (due to camera X change)
       const toTarget = a.target.clone().sub(a.pos);
@@ -984,7 +1185,13 @@ export class RioScene extends BaseScene {
 
       // Steering forces
       const fSeek = this.steerSeek(a, a.target, 1.0);
-      const fSep  = this.steerSeparation(a, this.fish, pf.separationRadius, pf.separationStrength);
+      if (!a._sepForce) a._sepForce = new THREE.Vector3();
+      if (doSeparationTick) {
+        const local = this._hash.neighbors(a.pos); // << only nearby fish, not all
+        const fSepNow = this.steerSeparation(a, local, pf.separationRadius, pf.separationStrength);
+        a._sepForce.copy(fSepNow);
+      }
+      const fSep = a._sepForce;
       const fBox  = this.steerContain(a).multiplyScalar(6.0); // push back inside
 
       // Sum and clamp by max accel
@@ -1002,11 +1209,69 @@ export class RioScene extends BaseScene {
       a.pos.addScaledVector(a.vel, dt);
       this.projectInsideSwimBox(a.pos);
 
-      // Apply to mesh with orientation by longest axis
-      a.applyOrientation();
-      a.mesh.position.copy(a.pos);
+      // Apply to renderable (instanced or non-instanced)
+      if (a.instanceId !== undefined) {
+        // Instanced: write transform into the instance matrix
+        const v = a.vel.clone();
+        if (v.lengthSq() > 1e-10) v.normalize();
+        const localFwd = a._detectLocalForward ? a._detectLocalForward() : new THREE.Vector3(1, 0, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(localFwd, v);
+        const m = new THREE.Matrix4();
+        const scl = a.mesh?.scale || new THREE.Vector3(1, 1, 1);
+        m.compose(a.pos, q, scl);
+
+        const bag = this.instanced.get(a.species.def.key);
+        if (bag) bag.inst.setMatrixAt(a.instanceId, m);
+      } else {
+        // Non-instanced fallback (if any species fell back)
+        a.applyOrientation();
+        a.mesh.position.copy(a.pos);
+      }
+    }
+    // Flush instance matrices once per species
+    for (const bag of this.instanced.values()) {
+      bag.inst.instanceMatrix.needsUpdate = true;
     }
   }
+
+  /**
+   * Create (or reuse) an InstancedMesh for a species. Uses the first Mesh found
+   * in the species' template as the source geometry/material.
+   */
+  _createInstancedForSpecies(speciesObj, count) {
+    const key = speciesObj.def.key;
+    if (this.instanced.has(key)) return this.instanced.get(key);
+
+    let baseMesh = null;
+    speciesObj.template.traverse(o => {
+      if (o.isMesh && !baseMesh) baseMesh = o;
+    });
+    if (!baseMesh) {
+      console.warn(`Species ${key}: no mesh in template; falling back to per-mesh.`);
+      return null;
+    }
+
+    const inst = new THREE.InstancedMesh(
+      baseMesh.geometry,
+      baseMesh.material, // shared across instances
+      count
+    );
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    inst.frustumCulled = true;
+    inst.userData.speciesKey = key;
+
+    const bag = {
+      inst,
+      activeCount: 0,
+      agents: [],          // optional list if you want it
+      instances: []        // instanceId -> agent  (authoritative mapping)
+    };
+
+    this.instancedGroup.add(inst);
+    this.instanced.set(key, bag);
+    return bag;
+  }
+
 
   /* ------------------------------- Steering helpers ------------------------------ */
 
