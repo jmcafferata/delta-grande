@@ -4777,7 +4777,12 @@ export class RecorridoScene extends BaseScene {
       }
       this.transitionAudio = new Audio('/game-assets/recorrido/sonido/Transicion delta mas.mp3');
       this.transitionAudio.volume = 0.5;
-      this.transitionAudio.play().catch(e => console.error("Transition audio play failed:", e));
+      // Delay voiceover narration by 3 seconds
+      setTimeout(() => {
+        if (this.transitionAudio) {
+          this.transitionAudio.play().catch(e => console.error("Transition audio play failed:", e));
+        }
+      }, 3000);
 
       const nextSceneIndex = this.current + 1;
 

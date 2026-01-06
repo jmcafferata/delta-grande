@@ -447,6 +447,48 @@ export class MenuScene extends BaseScene {
         display: none;
       `;
       
+      // Botón de atrás arriba a la derecha
+      const backBtn = document.createElement('button');
+      backBtn.textContent = '← ATRÁS';
+      backBtn.style.cssText = `
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: bold;
+        font-family: "new-science-mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.8);
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        border-radius: 6px;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.3s ease;
+        pointer-events: auto;
+      `;
+      
+      backBtn.addEventListener('mouseenter', () => {
+        backBtn.style.transform = 'scale(1.05)';
+        backBtn.style.background = 'rgba(255, 255, 255, 0.15)';
+        backBtn.style.color = 'rgb(255, 255, 255)';
+        backBtn.style.borderColor = 'rgb(255, 255, 255)';
+      });
+      
+      backBtn.addEventListener('mouseleave', () => {
+        backBtn.style.transform = 'scale(1)';
+        backBtn.style.background = 'transparent';
+        backBtn.style.color = 'rgba(255, 255, 255, 0.8)';
+        backBtn.style.borderColor = 'rgba(255, 255, 255, 0.8)';
+      });
+      
+      backBtn.addEventListener('click', () => {
+        // Volver a la página de inicio
+        location.hash = '#';
+        finalizeAction('back');
+      });
+
       // Botón de borrar progreso en la esquina
       const resetBtn = document.createElement('button');
       resetBtn.textContent = 'BORRAR PROGRESO';
@@ -515,8 +557,9 @@ export class MenuScene extends BaseScene {
         alert('Progreso borrado exitosamente');
       });
       
-      // Colocar el botón de reset fuera del contenedor escalable, en el wrapper
-      // para que permanezca en la esquina del viewport y no sea afectado por el scale.
+      // Colocar los botones fuera del contenedor escalable, en el wrapper
+      // para que permanezcan en las esquinas del viewport y no sean afectados por el scale.
+      menuWrapper.appendChild(backBtn);
       menuWrapper.appendChild(resetBtn);
 
       // Insertar en el wrapper y luego en el overlay
