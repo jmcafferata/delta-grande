@@ -114,22 +114,17 @@ export class InstruccionesTransitionScene extends BaseScene {
     `;
     overlay.appendChild(cloud2);
 
-    // Agregar sonido ambiente
-    const ambientSound = document.createElement('audio');
-    ambientSound.src = '/assets/delta-web-ambiente.mp3';
-    ambientSound.loop = true;
-    ambientSound.volume = 0.5;
-    ambientSound.play().catch((err) => {
-      console.warn('No se pudo reproducir sonido ambiente:', err);
-    });
+    // Nota: se ha eliminado el sonido ambiente para evitar superposición; solo se reproducirá Neblina glitch
 
     // Mostrar texto con efecto typewriter
     await this.showTypewriterText(overlay);
 
-    // Detener sonido ambiente antes de salir
-    if (ambientSound && !ambientSound.paused) {
-      ambientSound.pause();
-      ambientSound.currentTime = 0;
+    // Detener Neblina antes de salir
+    if (this.neblinaSound && !this.neblinaSound.paused) {
+      try {
+        this.neblinaSound.pause();
+        this.neblinaSound.currentTime = 0;
+      } catch (e) { /* ignore */ }
     }
 
     // Limpiar overlay
@@ -229,7 +224,30 @@ export class InstruccionesTransitionScene extends BaseScene {
     skipButton.addEventListener('click', (e) => {
       e.stopPropagation();
       this.skipRequested = true;
-      
+      try {
+        const url = '/game-assets/simulador/sound/Continuar botón.mp3';
+        const a = new Audio(url);
+        a.preload = 'auto';
+        a.crossOrigin = 'anonymous';
+        (async () => {
+          try { if (window.AudioManager && typeof AudioManager.unlock === 'function') await AudioManager.unlock(); } catch (e) {}
+          const ctx = (window.AudioManager && window.AudioManager.audioContext) ? window.AudioManager.audioContext : null;
+          if (ctx) {
+            try {
+              const source = ctx.createMediaElementSource(a);
+              const gain = ctx.createGain(); gain.gain.value = 3;
+              source.connect(gain); gain.connect(ctx.destination);
+              const cleanup = () => { try { source.disconnect(); } catch (e) {} try { gain.disconnect(); } catch (e) {} try { a.remove(); } catch (e) {} };
+              a.addEventListener('ended', cleanup, { once: true }); a.addEventListener('error', cleanup, { once: true });
+              a.play().catch(() => { try { a.volume = 1; } catch (e) {} a.play().catch(() => {}); });
+              return;
+            } catch (e) { /* fallback to element playback */ }
+          }
+          try { a.volume = 1; } catch (e) {}
+          a.play().catch(() => {});
+        })();
+      } catch (e) {}
+
       // Limpiar elementos y navegar
       overlay.style.transition = 'opacity 0.3s';
       overlay.style.opacity = '0';
@@ -378,9 +396,58 @@ export class InstruccionesTransitionScene extends BaseScene {
         currentAudio = null;
       }
       if (audioFiles[i]) {
-        currentAudio = new Audio(`/game-assets/instrucciones/voiceovers/${audioFiles[i]}`);
-        currentAudio.volume = 1.0;
-        currentAudio.play().catch(e => console.warn("Audio play failed", e));
+        // Special handling for the first line ("Tu rol"): play Neblina glitch as a persistent loop
+        if (i === 0) {
+          // Robustly pause any other audio sources in this window and parent windows (if same-origin)
+          const pauseAudioInWindow = (win) => {
+            try {
+              // Pause DOM <audio> elements
+              const audEls = Array.from(win.document.querySelectorAll('audio'));
+              audEls.forEach(a => {
+                try { a.pause(); a.currentTime = 0; } catch (e) { /* ignore */ }
+              });
+
+              // Pause known audioLayers object if present
+              const layers = win.audioLayers || {};
+              Object.values(layers).forEach(layer => {
+                try {
+                  if (!layer) return;
+                  if (typeof layer.pause === 'function') { layer.pause(); if ('currentTime' in layer) layer.currentTime = 0; }
+                } catch (e) { /* ignore */ }
+              });
+
+              // Pause any HTMLAudioElement stored on the window object
+              try {
+                Object.keys(win).forEach(k => {
+                  try {
+                    const v = win[k];
+                    if (v && v instanceof HTMLAudioElement) {
+                      v.pause(); if ('currentTime' in v) v.currentTime = 0;
+                    }
+                  } catch (e) { /* ignore */ }
+                });
+              } catch (e) { /* ignore */ }
+            } catch (e) { /* cross-origin or other error */ }
+          };
+
+          pauseAudioInWindow(window);
+          try { if (window.parent && window.parent !== window) pauseAudioInWindow(window.parent); } catch (e) { /* ignore */ }
+          try { if (window.top && window.top !== window) pauseAudioInWindow(window.top); } catch (e) { /* ignore */ }
+
+          // Create (once) and play a persistent looping Neblina sound that will NOT be stored in currentAudio
+          if (!this.neblinaSound) {
+            this.neblinaSound = new Audio('/assets/Neblina glitch.mp3');
+            this.neblinaSound.loop = true;
+            this.neblinaSound.volume = 1.0;
+          }
+          this.neblinaSound.play().catch(e => console.warn("Neblina play failed", e));
+
+          // Do not assign neb to currentAudio so it won't be stopped by the 'stop any playing audio' code.
+        } else {
+          currentAudio = new Audio(`/game-assets/instrucciones/voiceovers/${audioFiles[i]}`);
+          currentAudio.volume = 1.0;
+          currentAudio.play().catch(e => console.warn("Audio play failed", e));
+        }
       }
       
       // Limpiar el contenedor antes de agregar nueva línea
@@ -438,13 +505,36 @@ export class InstruccionesTransitionScene extends BaseScene {
       clickIndicator.style.opacity = '1';
 
       // Configurar click handler: completa el texto si está escribiendo, o avanza si ya terminó
-      const clickHandler = () => {
-        if (isTyping) {
-          skipTyping = true; // completar inmediatamente toda la frase
-        } else {
-          advanceToNext = true; // pasar a la siguiente línea inmediatamente
-        }
-      };
+        const clickHandler = (ev) => {
+          if (isTyping) {
+            skipTyping = true; // completar inmediatamente toda la frase
+          } else {
+            try {
+              const url = '/game-assets/simulador/sound/Continuar botón.mp3';
+              const a = new Audio(url);
+              a.preload = 'auto';
+              a.crossOrigin = 'anonymous';
+              (async () => {
+                try { if (window.AudioManager && typeof AudioManager.unlock === 'function') await AudioManager.unlock(); } catch (e) {}
+                const ctx = (window.AudioManager && window.AudioManager.audioContext) ? window.AudioManager.audioContext : null;
+                if (ctx) {
+                  try {
+                    const source = ctx.createMediaElementSource(a);
+                    const gain = ctx.createGain(); gain.gain.value = 3;
+                    source.connect(gain); gain.connect(ctx.destination);
+                    const cleanup = () => { try { source.disconnect(); } catch (e) {} try { gain.disconnect(); } catch (e) {} try { a.remove(); } catch (e) {} };
+                    a.addEventListener('ended', cleanup, { once: true }); a.addEventListener('error', cleanup, { once: true });
+                    a.play().catch(() => { try { a.volume = 1; } catch (e) {} a.play().catch(() => {}); });
+                    return;
+                  } catch (e) { /* fallback to element playback */ }
+                }
+                try { a.volume = 1; } catch (e) {}
+                a.play().catch(() => {});
+              })();
+            } catch (e) {}
+            advanceToNext = true; // pasar a la siguiente línea inmediatamente
+          }
+        };
       overlay.addEventListener('click', clickHandler);
 
       // Efecto typewriter revelando spans y manteniendo onda

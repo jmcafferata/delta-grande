@@ -5,6 +5,7 @@ import { AssetLoader } from '../core/AssetLoader.js';
 import { EventBus } from '../core/EventBus.js';
 import { UI } from '../core/UI.js';
 import { State } from '../core/State.js';
+import { AudioManager } from '../core/AudioManager.js';
 
 const ensureTrailingSlash = (value = '') => (value.endsWith('/') ? value : `${value}/`);
 const computePublicBaseUrl = () => {
@@ -1807,9 +1808,16 @@ class Deck {
   }
 
   showWinMessage() {
-    console.log('🎉 Congratulations! You have won the game by finding half of each species!');
-    // You can add more visual feedback here like a popup or overlay
-    // For now, we'll just log to console
+    console.log('🎉 Congratulations! You have won the game by finding all required fish!');
+    // Reproduce el audio de victoria (misma pista usada en Simulador)
+    try {
+      // Construir URL seguro y absoluto hacia el asset
+      const url = encodeURI(resolvePublicAsset('game-assets/simulador/sound/Misión cumplida.mp3'));
+      try { if (typeof AudioManager !== 'undefined' && AudioManager && typeof AudioManager.unlock === 'function') AudioManager.unlock(); } catch (e) {}
+      try { if (typeof AudioManager !== 'undefined' && AudioManager) AudioManager.play(url, { volume: 1 }); } catch (e) {}
+    } catch (e) {
+      // ignore audio failures
+    }
   }
 
 
@@ -4863,6 +4871,14 @@ export class RioScene extends BaseScene {
     if (isComplete !== this._tagProgress.completed) {
       this._tagProgress.completed = isComplete;
       this._tagProgress.barFillEl.style.background = isComplete ? '#00FF6A' : (this.params?.deckUI?.colors?.silhouetteSelected || '#FFD400');
+      if (isComplete) {
+        // Reproducir audio de victoria (misma pista usada en Simulador)
+        try {
+          const url = encodeURI(resolvePublicAsset('game-assets/simulador/sound/Misión cumplida.mp3'));
+          try { if (typeof AudioManager !== 'undefined' && AudioManager && typeof AudioManager.unlock === 'function') AudioManager.unlock(); } catch (e) {}
+          try { if (typeof AudioManager !== 'undefined' && AudioManager) AudioManager.play(url, { volume: 1 }); } catch (e) {}
+        } catch (e) {}
+      }
     }
   }
 

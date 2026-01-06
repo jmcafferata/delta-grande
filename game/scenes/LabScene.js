@@ -1321,11 +1321,38 @@ export class LabScene extends BaseScene{
       overlay.style.cursor = 'auto';
       overlay.style.zIndex = '10000'; // Menor que el menú de pausa (12000)
       
-      // Iniciar música de fondo del laboratorio
+      // Iniciar música de fondo del laboratorio: start at 4s and fade in to 0.5 over 1.05s
       this.labMenuMusic = new Audio('/game-assets/laboratorio/Laboratorio V1.mp3');
-      this.labMenuMusic.volume = 0.5;
       this.labMenuMusic.loop = true;
-      this.labMenuMusic.play().catch(() => {});
+      // Start muted and ramp up
+      this.labMenuMusic.volume = 0;
+      const targetLabVol = 0.5;
+      const fadeDurationMs = 1050; // 1.05s
+      const startAtSec = 4.0;
+
+      const startLabPlayback = () => {
+        try {
+          if (this.labMenuMusic.duration && this.labMenuMusic.duration > startAtSec) {
+            this.labMenuMusic.currentTime = startAtSec;
+          }
+        } catch (e) { /* ignore if not allowed yet */ }
+        this.labMenuMusic.play().catch(() => {});
+
+        const t0 = performance.now();
+        const step = (now) => {
+          const p = Math.min((now - t0) / fadeDurationMs, 1);
+          try { this.labMenuMusic.volume = targetLabVol * p; } catch (e) { /* ignore */ }
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      };
+
+      if (this.labMenuMusic.readyState >= 2) {
+        startLabPlayback();
+      } else {
+        this.labMenuMusic.addEventListener('loadedmetadata', startLabPlayback, { once: true });
+        this.labMenuMusic.addEventListener('canplay', startLabPlayback, { once: true });
+      }
       
       // Crear contenedor del menú
       const menuContainer = document.createElement('div');

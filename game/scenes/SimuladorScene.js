@@ -3,6 +3,7 @@ import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import { AssetLoader } from '../core/AssetLoader.js';
 import { BaseScene } from '../core/BaseScene.js';
 import { UI } from '../core/UI.js';
+import { AudioManager } from '../core/AudioManager.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -109,6 +110,11 @@ export const DEFAULT_PARAMS = Object.freeze({
       volume: 0.2,
       delay: 0
     }),
+    continueButton: Object.freeze({
+      file: 'Continuar botón.mp3',
+      volume: 0.25,
+      delay: 0
+    }),
     removePlant: Object.freeze({
       file: 'remover.mp3',
       volume: 1,
@@ -126,26 +132,42 @@ export const DEFAULT_PARAMS = Object.freeze({
       delay: 0,
       loop: true
     }),
+    // Rain ambient sound when weather shows rain
+    rain: Object.freeze({
+      file: 'LLuvia simulador.mp3',
+      volume: 1,
+      delay: 0,
+      loop: true
+    }),
     plantTransitions: Object.freeze({
       seedToSprout: Object.freeze({
         file: 'De semilla a brote.mp3',
         volume: 0.2,
         delay: 0
       }),
+      // empezar a reproducir desde 1s y hacer fadeOut empezando en 3.5s con 1s de duracion
       sproutToSapling: Object.freeze({
         file: 'Brote a arbolito.mp3',
         volume: 0.2,
-        delay: 0
+        delay: 0,
+        start: 1.0,
+        fadeStart: 3.5,
+        fadeDuration: 1.0
       }),
+      // empezar normal pero fadeOut debe comenzar en 4s
       saplingToTree: Object.freeze({
         file: 'Arbolito a arbol.mp3',
         volume: 0.2,
-        delay: 0
+        delay: 0,
+        fadeStart: 4.0,
+        fadeDuration: 1.0
       }),
+      // comenzar desde 2.4s dentro del archivo
       treeToFinal: Object.freeze({
         file: 'Arbol a Arbol final.mp3',
         volume: 0.2,
-        delay: 0
+        delay: 0,
+        start: 2.4
       })
     })
   }),
@@ -669,7 +691,10 @@ export class SimuladorScene extends BaseScene {
     this._audioTimers = new Set();
     this._ambientAudio = null;
     this._transientAudios = new Set();
+  this._transientAudioCounts = new Map();
+  this._rainAudio = null;
     this._sedimentAudio = null;
+  this._preloadedRainAudio = null;
     this._sedimentSoundPlaying = false;
     this._sedimentSoundPending = false;
 
@@ -2735,7 +2760,12 @@ export class SimuladorScene extends BaseScene {
   _resolveAudioUrl(file) {
     if (!file) return null;
     const basePath = this.params.audio?.basePath || '';
-    return this._normalizeAssetPath(basePath, file);
+    // Ensure the returned URL is safe for browsers (encode spaces / non-ASCII chars)
+    try {
+      return encodeURI(this._normalizeAssetPath(basePath, file));
+    } catch (e) {
+      return this._normalizeAssetPath(basePath, file);
+    }
   }
 
   _createAudioElement(file) {
@@ -2792,33 +2822,126 @@ export class SimuladorScene extends BaseScene {
     const volume = clamp(overrides.volume ?? config.volume ?? 1, 0, 1);
     const delay = Math.max(0, overrides.delay ?? config.delay ?? 0);
     const loop = !!(overrides.loop ?? config.loop);
+
+    // Start offset inside the audio file (seconds)
+    const startOffset = Number(overrides.start ?? config.start ?? 0) || 0;
+    // Fade parameters (absolute times inside file)
+    const fadeStartAbsolute = typeof overrides.fadeStart === 'number' ? overrides.fadeStart : (typeof config.fadeStart === 'number' ? config.fadeStart : null);
+    const fadeDuration = Number(overrides.fadeDuration ?? config.fadeDuration ?? 1) || 1;
+
     const play = () => {
+      // resolve full url for counting so different relative names map to the same resource
+      const url = this._resolveAudioUrl(file);
+      if (!url) return;
+
+      // limit concurrent instances per-audio (default 3)
+      const limit = Number(overrides.instanceLimit ?? config.instanceLimit ?? 3) || 3;
+      const currentCount = this._transientAudioCounts.get(url) || 0;
+      if (currentCount >= limit) {
+        // too many instances right now — ignore this play
+        return;
+      }
+
       const audio = this._createAudioElement(file);
       if (!audio) return;
       audio.loop = loop;
       audio.volume = volume;
+
+      // increment counter for this url
+      this._transientAudioCounts.set(url, currentCount + 1);
+
       if (this._transientAudios) {
         this._transientAudios.add(audio);
         const cleanup = () => {
-          this._transientAudios.delete(audio);
+          try { this._transientAudios.delete(audio); } catch (e) {}
+          try {
+            const c = (this._transientAudioCounts.get(url) || 1) - 1;
+            if (c <= 0) this._transientAudioCounts.delete(url);
+            else this._transientAudioCounts.set(url, c);
+          } catch (e) {}
         };
         audio.addEventListener('ended', cleanup, { once: true });
         audio.addEventListener('error', cleanup, { once: true });
+        // also ensure cleanup in case of pause/reset by our fade
+        audio._dg_cleanup = cleanup;
       }
-      try {
-        audio.currentTime = 0;
-      } catch (err) {
-        // ignore reset issues
+
+      // Helper to set start offset when metadata is available
+      const trySetStart = () => {
+        if (!audio) return;
+        if (!startOffset || startOffset <= 0) return;
+        try {
+          // Clamp to duration if available
+          if (typeof audio.duration === 'number' && isFinite(audio.duration)) {
+            audio.currentTime = Math.min(startOffset, Math.max(0, audio.duration - 0.05));
+          } else {
+            audio.currentTime = startOffset;
+          }
+        } catch (err) {
+          // ignore timing set issues until metadata available
+        }
+      };
+
+      if (audio.readyState >= 1) {
+        trySetStart();
+      } else {
+        audio.addEventListener('loadedmetadata', trySetStart, { once: true });
       }
+
+      // Play now
       const promise = audio.play();
       if (promise && typeof promise.catch === 'function') {
         promise.catch(() => {
-          if (this._transientAudios) {
-            this._transientAudios.delete(audio);
-          }
+          try {
+            if (audio && typeof audio._dg_cleanup === 'function') audio._dg_cleanup();
+            else if (this._transientAudios) this._transientAudios.delete(audio);
+          } catch (e) {}
         });
       }
+
+      // Schedule fade if requested. fadeStartAbsolute is absolute time inside file.
+      if (fadeStartAbsolute !== null && isFinite(fadeStartAbsolute)) {
+        // Compute delay relative to the play moment: fadeDelay = fadeStartAbsolute - startOffset
+        let fadeDelaySeconds = Number(fadeStartAbsolute) - Number(startOffset || 0);
+        if (fadeDelaySeconds < 0) fadeDelaySeconds = 0; // start fade immediately if already past
+
+        const doFade = (aud, dur) => {
+          if (!aud) return;
+          const initialVol = typeof aud.volume === 'number' ? aud.volume : volume;
+          const startTs = Date.now();
+          const durMs = Math.max(1, dur * 1000);
+
+          const step = () => {
+            if (!aud) return;
+            const t = (Date.now() - startTs) / durMs;
+              if (t >= 1) {
+                try { aud.volume = 0; } catch (e) {}
+                try { aud.pause(); aud.currentTime = 0; } catch (e) {}
+                // run any registered cleanup (decrement counts, remove from set)
+                try {
+                  if (typeof aud._dg_cleanup === 'function') aud._dg_cleanup();
+                  else if (this._transientAudios) this._transientAudios.delete(aud);
+                } catch (e) {}
+                return;
+              }
+            try {
+              aud.volume = Math.max(0, initialVol * (1 - t));
+            } catch (e) {}
+            try {
+              requestAnimationFrame(step);
+            } catch (e) {
+              // fallback to timeout
+              setTimeout(step, 50);
+            }
+          };
+          step();
+        };
+
+        // Use scheduler to fire fade after computed delay
+        this._scheduleAudioPlayback(() => doFade(audio, fadeDuration), fadeDelaySeconds);
+      }
     };
+
     if (delay > 0) {
       this._scheduleAudioPlayback(play, delay);
     } else {
@@ -2856,6 +2979,96 @@ export class SimuladorScene extends BaseScene {
     }
   }
 
+  _fadeAudioTo(audio, targetVolume, durationSeconds = 0.7, onComplete) {
+    if (!audio || typeof audio.volume !== 'number') {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
+    try {
+      const startVol = Math.max(0, Math.min(1, Number(audio.volume) || 0));
+      const endVol = Math.max(0, Math.min(1, Number(targetVolume) || 0));
+      if (durationSeconds <= 0 || startVol === endVol) {
+        audio.volume = endVol;
+        if (typeof onComplete === 'function') onComplete();
+        return;
+      }
+      const startTs = Date.now();
+      const durMs = Math.max(1, durationSeconds * 1000);
+      const step = () => {
+        const t = (Date.now() - startTs) / durMs;
+        if (t >= 1) {
+          try { audio.volume = endVol; } catch (e) {}
+          try { if (typeof onComplete === 'function') onComplete(); } catch (e) {}
+          return;
+        }
+        try { audio.volume = startVol + (endVol - startVol) * t; } catch (e) {}
+        try { requestAnimationFrame(step); } catch (e) { setTimeout(step, 50); }
+      };
+      step();
+    } catch (e) {
+      try { audio.volume = targetVolume; } catch (err) {}
+      if (typeof onComplete === 'function') onComplete();
+    }
+  }
+
+  // NOTE: previously we tried multiple complex fallbacks for the "continue" click sound
+  // (WebAudio gain node, loadedmetadata seeks, etc.) — those caused reliability issues
+  // for the user. Keep playback simple: use the scene's one-shot helper which uses
+  // the configured audio entry at its original volume.
+
+  _playContinueButtonWithGain() {
+    const cfg = this.params.audio?.continueButton;
+    if (!cfg || !cfg.file) return;
+    const url = this._resolveAudioUrl(cfg.file) || ('/game-assets/simulador/sound/' + cfg.file);
+
+    // Try to enable/resume shared AudioContext if available
+    try { if (AudioManager && typeof AudioManager.unlock === 'function') AudioManager.unlock(); } catch (e) {}
+
+    try {
+      const a = new Audio(url);
+      a.preload = 'auto';
+      a.crossOrigin = 'anonymous';
+
+      // If there's a shared AudioContext, use a GainNode to raise gain above 1.0
+      const ctx = (window.AudioManager && window.AudioManager.audioContext) ? window.AudioManager.audioContext : null;
+      if (ctx) {
+        try {
+          const source = ctx.createMediaElementSource(a);
+          const gain = ctx.createGain();
+          // multiply configured volume by 3 (user requested "triple")
+          const baseVol = typeof cfg.volume === 'number' ? cfg.volume : 1;
+          gain.gain.value = baseVol * 3;
+          source.connect(gain);
+          gain.connect(ctx.destination);
+
+          const cleanup = () => {
+            try { source.disconnect(); } catch (e) {}
+            try { gain.disconnect(); } catch (e) {}
+            try { a.remove(); } catch (e) {}
+          };
+          a.addEventListener('ended', cleanup, { once: true });
+          a.addEventListener('error', cleanup, { once: true });
+
+          // Play immediately (user gesture should allow it)
+          a.play().catch(() => {
+            // fallback: try element volume if WebAudio play failed
+            try { a.volume = Math.min(1, baseVol * 1); } catch (e) {}
+            a.play().catch(()=>{});
+          });
+          return;
+        } catch (e) {
+          // fall through to element fallback
+        }
+      }
+
+      // Fallback: set element volume to maximum allowed (1.0) times baseVol capped
+      try { a.volume = Math.min(1, (cfg.volume ?? 1)); } catch (e) {}
+      a.play().catch(()=>{});
+    } catch (e) {
+      // ignore
+    }
+  }
+
   _initAudio() {
     if (!this._audioTimers) {
       this._audioTimers = new Set();
@@ -2863,6 +3076,17 @@ export class SimuladorScene extends BaseScene {
     this._disposeAudio();
     this._startLoopingAudioInstance('_ambientAudio', this.params.audio?.ambient);
     this._startLoopingAudioInstance('_musicAudio', this.params.audio?.music);
+    // Preload rain audio so seeking to 17s can happen faster when rain starts
+    try {
+      const rainFile = this.params.audio?.rain?.file;
+      if (rainFile && !this._preloadedRainAudio) {
+        const pa = this._createAudioElement(rainFile);
+        if (pa) {
+          // keep reference to reuse later (do not play now)
+          this._preloadedRainAudio = pa;
+        }
+      }
+    } catch (e) {}
   }
 
   _disposeAudio() {
@@ -2876,6 +3100,10 @@ export class SimuladorScene extends BaseScene {
         }
       });
       this._transientAudios.clear();
+    }
+    // clear per-audio counts to avoid stale limits after disposing
+    if (this._transientAudioCounts && this._transientAudioCounts.size) {
+      this._transientAudioCounts.clear();
     }
     if (this._sedimentAudio) {
       try {
@@ -2900,6 +3128,16 @@ export class SimuladorScene extends BaseScene {
         // ignore reset issues
       }
       this._musicAudio = null;
+    }
+    if (this._rainAudio) {
+      try { this._rainAudio.pause(); } catch (e) {}
+      try { this._rainAudio.currentTime = 0; } catch (e) {}
+      this._rainAudio = null;
+    }
+    if (this._preloadedRainAudio) {
+      try { this._preloadedRainAudio.pause(); } catch (e) {}
+      try { this._preloadedRainAudio.currentTime = 0; } catch (e) {}
+      this._preloadedRainAudio = null;
     }
     if (this._ambientAudio) {
       this._ambientAudio.pause();
@@ -4136,6 +4374,21 @@ export class SimuladorScene extends BaseScene {
       const victoryMsg = this.params.progress?.victoryMessage;
       if (victoryMsg) {
         this._showGoalMessage(victoryMsg);
+        // Play the victory audio ("Misión cumplida") when the final victory message is shown
+        try {
+          this._fireAndForgetSound({ file: 'Misión cumplida.mp3', volume: 1 });
+        } catch (e) {
+          // ignore audio failures
+        }
+        // Fallback + debug: log resolved URL and try shared AudioManager playback
+        try {
+          const resolved = this._resolveAudioUrl('Misión cumplida.mp3');
+          try { console.debug('[SimuladorScene] Victory audio resolved URL:', resolved); } catch (e) {}
+          if (typeof AudioManager !== 'undefined' && AudioManager) {
+            try { AudioManager.unlock && AudioManager.unlock(); } catch (e) {}
+            try { AudioManager.play && AudioManager.play(resolved, { volume: 1 }); } catch (e) {}
+          }
+        } catch (e) {}
       }
     } else {
       this._hideGoalMessage();
@@ -5867,7 +6120,10 @@ export class SimuladorScene extends BaseScene {
       button.style.boxShadow = `0 0 ${(ui.gap * 140).toFixed(3)}vh rgba(0,0,0,${ui.shadowOpacity ?? 0.4})`;
       button.style.filter = 'none';
     });
-    button.addEventListener('click', () => this._handleTutorialAdvance());
+    button.addEventListener('click', (ev) => {
+      try { this._playContinueButtonWithGain(); } catch (e) {}
+      this._handleTutorialAdvance();
+    });
     card.appendChild(button);
 
     const skipButton = document.createElement('button');
@@ -5888,7 +6144,10 @@ export class SimuladorScene extends BaseScene {
     skipButton.addEventListener('mouseleave', () => {
       skipButton.style.color = 'rgba(255, 255, 255, 0.6)';
     });
-    skipButton.addEventListener('click', () => this._skipTutorial());
+    skipButton.addEventListener('click', (ev) => {
+      try { this._playContinueButtonWithGain(); } catch (e) {}
+      this._skipTutorial();
+    });
     card.appendChild(skipButton);
 
     root.appendChild(overlay);
@@ -6896,6 +7155,81 @@ export class SimuladorScene extends BaseScene {
     // Rain
     if (this._rainSystem) {
         this._rainSystem.visible = rainEnabled;
+        // Start or stop the rain audio to match the visual state
+        try {
+          const rainCfg = this.params.audio?.rain || {};
+          const targetVol = clamp(rainCfg.volume ?? 1, 0, 1);
+          const fadeSec = 0.7;
+          if (rainEnabled) {
+            // start if not already playing — create audio manually so we can seek into it
+            if (!this._rainAudio) {
+              try {
+                // reuse preloaded audio if available
+                const audio = this._preloadedRainAudio || this._createAudioElement(rainCfg.file);
+                if (audio) {
+                  audio.loop = rainCfg.loop !== false;
+                  // start muted and then fade in
+                  try { audio.volume = 0; } catch (e) {}
+                  this._rainAudio = audio;
+                  // if we used the preloaded element, clear the preload reference
+                  if (this._preloadedRainAudio === audio) this._preloadedRainAudio = null;
+
+                  const startAt = 17.0; // start playback from 17s as requested
+                  const tryStart = () => {
+                    try {
+                      if (typeof audio.duration === 'number' && isFinite(audio.duration)) {
+                        audio.currentTime = Math.min(startAt, Math.max(0, audio.duration - 0.05));
+                      } else {
+                        audio.currentTime = startAt;
+                      }
+                    } catch (e) {
+                      // ignore until metadata available
+                    }
+                    const p = audio.play(); if (p && typeof p.catch === 'function') p.catch(() => {});
+                    this._fadeAudioTo(audio, targetVol, fadeSec);
+                  };
+
+                  if (audio.readyState >= 1) {
+                    tryStart();
+                  } else {
+                    audio.addEventListener('loadedmetadata', tryStart, { once: true });
+                  }
+                }
+              } catch (e) {
+                // fallback: try start via existing helper
+                this._startLoopingAudioInstance('_rainAudio', rainCfg);
+                if (this._rainAudio) { try { this._rainAudio.volume = 0; } catch (e) {} this._fadeAudioTo(this._rainAudio, targetVol, fadeSec); }
+              }
+            } else if (this._rainAudio.paused) {
+              // seek to startAt then play with fade
+              try {
+                const startAt = 17.0;
+                if (this._rainAudio.readyState >= 1) {
+                  try { this._rainAudio.currentTime = Math.min(startAt, Math.max(0, this._rainAudio.duration - 0.05)); } catch (e) {}
+                  try { this._rainAudio.volume = 0; } catch (e) {}
+                  const p = this._rainAudio.play(); if (p && typeof p.catch === 'function') p.catch(() => {});
+                  this._fadeAudioTo(this._rainAudio, targetVol, fadeSec);
+                } else {
+                  this._rainAudio.addEventListener('loadedmetadata', () => {
+                    try { this._rainAudio.currentTime = Math.min(startAt, Math.max(0, this._rainAudio.duration - 0.05)); } catch (e) {}
+                    try { this._rainAudio.volume = 0; } catch (e) {}
+                    const p = this._rainAudio.play(); if (p && typeof p.catch === 'function') p.catch(() => {});
+                    this._fadeAudioTo(this._rainAudio, targetVol, fadeSec);
+                  }, { once: true });
+                }
+              } catch (e) {}
+            }
+          } else {
+            if (this._rainAudio) {
+              // fade out then stop
+              this._fadeAudioTo(this._rainAudio, 0, fadeSec, () => {
+                try { this._rainAudio.pause(); } catch (e) {}
+                try { this._rainAudio.currentTime = 0; } catch (e) {}
+                this._rainAudio = null;
+              });
+            }
+          }
+        } catch (e) {}
     }
     
     // Animate brightness

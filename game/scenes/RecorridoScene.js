@@ -4577,6 +4577,74 @@ export class RecorridoScene extends BaseScene {
     // Fade in
     requestAnimationFrame(() => {
       overlay.style.opacity = '1';
+
+      // Crear botón para reproducir sonido si el autoplay está bloqueado
+      const soundBtn = document.createElement('button');
+      soundBtn.textContent = 'Reproducir sonido';
+      soundBtn.style.cssText = `
+        position: absolute;
+        bottom: 36px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: "new-science", 'New Science', system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
+        font-size: 16px;
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: 2px solid #FBFE5E;
+        background: transparent;
+        color: #FBFE5E;
+        cursor: pointer;
+        display: none; /* visible solo si autoplay falla */
+        z-index: 20001;
+      `;
+      soundBtn.onclick = async () => {
+        try { if (typeof AudioManager !== 'undefined' && AudioManager && typeof AudioManager.unlock === 'function') await AudioManager.unlock(); } catch (e) {}
+        tryPlay();
+        soundBtn.style.display = 'none';
+      };
+      overlay.appendChild(soundBtn);
+
+      const preferredUrl = encodeURI(resolvePublicAsset('game-assets/recorrido/sonido/Victoria pez.mp3'));
+      const fallbackUrl = encodeURI(resolvePublicAsset('game-assets/simulador/sound/Misión cumplida.mp3'));
+
+      const tryPlay = () => {
+        try {
+          try { if (typeof AudioManager !== 'undefined' && AudioManager && typeof AudioManager.unlock === 'function') AudioManager.unlock(); } catch (e) {}
+          // Intentar preferido
+          let a = null;
+          try { a = (typeof AudioManager !== 'undefined' && AudioManager) ? AudioManager.play(preferredUrl, { volume: 1 }) : null; } catch (e) { a = null; }
+          if (!a) {
+            try { a = (typeof AudioManager !== 'undefined' && AudioManager) ? AudioManager.play(fallbackUrl, { volume: 1 }) : null; } catch (e) { a = null; }
+          }
+          return a;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      // Intento automático inicial
+      tryPlay();
+
+      // Si a los 600ms no hay reproducción, mostrar el botón para que el usuario permita audio.
+      setTimeout(() => {
+        try {
+          let playing = false;
+          try {
+            if (typeof AudioManager !== 'undefined' && AudioManager) {
+              // Si hay un AudioContext y está en running, asumimos que sonó algo
+              if (AudioManager.audioContext && AudioManager.audioContext.state === 'running') playing = true;
+              // O si alguno de los elementos <audio> tiene .paused === false
+              for (const k in AudioManager.audios) {
+                const el = AudioManager.audios[k];
+                if (el && typeof el.paused === 'boolean' && !el.paused) { playing = true; break; }
+              }
+            }
+          } catch (e) { playing = false; }
+          if (!playing) {
+            soundBtn.style.display = 'inline-block';
+          }
+        } catch (e) {}
+      }, 600);
     });
   }
 

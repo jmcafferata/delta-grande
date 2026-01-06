@@ -28,11 +28,55 @@ export class MenuScene extends BaseScene {
     // Cargar fuente de Adobe Typekit
     this.ensureMenuFont();
     
-    // Reproducir sonido ambiente del laboratorio
+    // Reproducir sonido ambiente del laboratorio (empezar en 68s, fade-in 2s, volumen objetivo 0.6)
+    const MENU_AUDIO_OFFSET = 68; // segundos (cortar la primera parte)
+    const MENU_AUDIO_TARGET_VOLUME = 0.6;
+    const MENU_AUDIO_FADE_MS = 2000; // fade-in en ms
+
     this.ambientAudio = new Audio('/game-assets/menu/laboratorio.mp3');
     this.ambientAudio.loop = true;
-    this.ambientAudio.volume = 0.5;
-    this.ambientAudio.play().catch(err => console.warn('Audio playback failed:', err));
+    // comenzar en 0 para permitir fade-in
+    try { this.ambientAudio.volume = 0; } catch (e) {}
+
+    // startAmbient asegura que seteamos currentTime sólo cuando la metadata esté disponible
+    const startAmbient = () => {
+      try {
+        if (typeof this.ambientAudio.duration === 'number' && !isNaN(this.ambientAudio.duration)) {
+          if (MENU_AUDIO_OFFSET < this.ambientAudio.duration) {
+            this.ambientAudio.currentTime = MENU_AUDIO_OFFSET;
+          } else {
+            // Si el offset excede la duración, empezar desde el inicio
+            this.ambientAudio.currentTime = 0;
+          }
+        }
+      } catch (err) {
+        // Ignorar errores al setear currentTime
+      }
+
+      // Intentar reproducir, luego hacer fade-in hacia el volumen objetivo
+      this.ambientAudio.play().then(() => {
+        const start = performance.now();
+        const step = () => {
+          if (!this.ambientAudio) return; // si se desmontó
+          const now = performance.now();
+          const t = Math.min(1, (now - start) / MENU_AUDIO_FADE_MS);
+          try {
+            this.ambientAudio.volume = t * MENU_AUDIO_TARGET_VOLUME;
+          } catch (e) {}
+          if (t < 1) requestAnimationFrame(step);
+          else try { this.ambientAudio.volume = MENU_AUDIO_TARGET_VOLUME; } catch (e) {}
+        };
+        requestAnimationFrame(step);
+      }).catch(err => console.warn('Audio playback failed:', err));
+    };
+
+    if (this.ambientAudio.readyState >= 1) {
+      startAmbient();
+    } else {
+      this.ambientAudio.addEventListener('loadedmetadata', startAmbient, { once: true });
+      // Fallback por si 'loadedmetadata' no se dispara por alguna razón
+      setTimeout(startAmbient, 500);
+    }
     
     // Ocultar el canvas 3D
     this.app.canvas.style.display = 'none';
