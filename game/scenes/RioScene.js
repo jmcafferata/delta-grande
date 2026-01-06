@@ -2405,6 +2405,9 @@ class CompletedOverlay {
 
     this._onResize = () => this.updateLayout();
     this._spaceMetrics = { width: 0, height: 0, left: 0, top: 0, scale: 1 };
+
+    this.audio = new Audio();
+    this.audio.volume = 1.0;
   }
 
   prepare() {
@@ -2741,6 +2744,8 @@ class CompletedOverlay {
   }
 
   destroy() {
+    this.audio.pause();
+    this.audio.src = '';
     window.removeEventListener('resize', this._onResize);
     if (this.root && this.root.parentNode) {
       this.root.parentNode.removeChild(this.root);
@@ -2752,6 +2757,9 @@ class CompletedOverlay {
   hide() {
     if (!this.root) return;
     this.root.style.visibility = 'hidden';
+    
+    this.audio.pause();
+    this.audio.currentTime = 0;
 
     Object.values(this.components).forEach(comp => {
       comp.state = 'hidden';
@@ -2862,6 +2870,14 @@ class CompletedOverlay {
     this._applyNameContent(displayName);
     this._applyImageContent(imageSrc);
     this._applyInfoContent(infoText);
+
+    // Play voiceover
+    if (speciesKey) {
+      const audioSrc = resolvePublicAsset(`game-assets/sub/voiceovers/${speciesKey}.mp3`);
+      this.audio.src = audioSrc;
+      this.audio.currentTime = 0;
+      this.audio.play().catch(e => console.warn("CompletedOverlay audio play failed", e));
+    }
   }
 
   _applyNameContent(displayName) {
@@ -3349,6 +3365,10 @@ class FactOverlay {
     this.container.appendChild(this.textEl);
     document.body.appendChild(this.container);
 
+    // Audio element for voiceovers
+    this.audio = new Audio();
+    this.audio.volume = 1.0;
+
     // When the image loads, we can fit text reliably.
     this.bgImg.addEventListener('load', () => {
       this._fitText();
@@ -3405,14 +3425,25 @@ class FactOverlay {
     this.container.style.opacity = '0';
   }
 
-  show(text) {
+  show(text, audioSrc) {
     if (this.timeout) clearTimeout(this.timeout);
+    
+    // Stop previous audio
+    this.audio.pause();
+    this.audio.currentTime = 0;
+
     this.textEl.textContent = String(text ?? '');
     this._fitText();
     // Extra passes to ensure layout settles (responsive width + font load).
     requestAnimationFrame(() => this._fitText());
     setTimeout(() => this._fitText(), 0);
     this.container.style.opacity = '1';
+    
+    if (audioSrc) {
+      this.audio.src = audioSrc;
+      this.audio.play().catch(e => console.warn("Audio play failed", e));
+    }
+
     this.timeout = setTimeout(() => {
       this.container.style.opacity = '0';
     }, this.options.showMs);
@@ -6717,9 +6748,13 @@ export class RioScene extends BaseScene {
         if (this.speciesFactIndices[speciesKey] === undefined) {
           this.speciesFactIndices[speciesKey] = 0;
         }
-        const fact = facts[this.speciesFactIndices[speciesKey]];
-        this.factOverlay.show(fact);
-        this.speciesFactIndices[speciesKey] = (this.speciesFactIndices[speciesKey] + 1) % facts.length;
+        const index = this.speciesFactIndices[speciesKey];
+        const fact = facts[index];
+        
+        const audioSrc = resolvePublicAsset(`game-assets/rio/voiceovers/${speciesKey}_${index}.mp3`);
+        this.factOverlay.show(fact, audioSrc);
+        
+        this.speciesFactIndices[speciesKey] = (index + 1) % facts.length;
       }
     }
   }

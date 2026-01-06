@@ -190,7 +190,8 @@ export class RecorridoTransitionScene extends BaseScene {
       overlay,
       '/game-assets/transiciones/secuencia_inicio_recorrido1.webm',
       () => skipped,
-      'El espinal cubre la gran parte del territorio entrerriano, llegando a las costas del Delta del Paraná, donde se fusiona con la selva en galería.'
+      'El espinal cubre la gran parte del territorio entrerriano, llegando a las costas del Delta del Paraná, donde se fusiona con la selva en galería.',
+      '/game-assets/transiciones/voiceovers/recorrido_transition_0.mp3'
     );
 
     // Si no se hizo skip, reproducir segundo video con texto
@@ -199,7 +200,8 @@ export class RecorridoTransitionScene extends BaseScene {
         overlay,
         '/game-assets/transiciones/secuencia_inicio_recorrido2.webm',
         () => skipped,
-        'Aquí, en la unión de estos ecosistemas, se pueden encontrar una gran variedad de especies: algunas muy escurridizas, otras que les encanta hacerse ver.'
+        'Aquí, en la unión de estos ecosistemas, se pueden encontrar una gran variedad de especies: algunas muy escurridizas, otras que les encanta hacerse ver.',
+        '/game-assets/transiciones/voiceovers/recorrido_transition_1.mp3'
       );
     }
 
@@ -246,7 +248,7 @@ export class RecorridoTransitionScene extends BaseScene {
     location.hash = '#recorrido';
   }
 
-  async playTransitionVideo(overlay, videoSrc, isSkipped, textContent = null) {
+  async playTransitionVideo(overlay, videoSrc, isSkipped, textContent = null, audioSrc = null) {
     if (this._cleanupRequested) {
       return;
     }
@@ -295,6 +297,14 @@ export class RecorridoTransitionScene extends BaseScene {
 
       // Reproducir video
       video.play();
+
+      // Reproducir audio de voz en off
+      let voiceAudio = null;
+      if (audioSrc) {
+        voiceAudio = new Audio(audioSrc);
+        voiceAudio.volume = 1.0;
+        voiceAudio.play().catch(e => console.warn("Transition voiceover play failed", e));
+      }
 
       // Iniciar efecto typewriter después de 2 segundos
       if (textContent && textOverlay && textEl) {
@@ -415,6 +425,10 @@ export class RecorridoTransitionScene extends BaseScene {
         if (skipRafId) {
           cancelAnimationFrame(skipRafId);
           this._rafIds.delete(skipRafId);
+        }
+        if (voiceAudio) {
+          voiceAudio.pause();
+          voiceAudio.currentTime = 0;
         }
         video.pause();
         video.src = ''; // Release memory

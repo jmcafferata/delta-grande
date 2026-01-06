@@ -157,6 +157,15 @@ export class InstruccionesTransitionScene extends BaseScene {
       'Usá tu silencio: la naturaleza habla bajito.'
     ];
 
+    const audioFiles = [
+      'tu_rol.mp3',
+      'sos_aprendiz.mp3',
+      'tu_mision.mp3',
+      'tu_herramienta.mp3',
+      'agudiza_sentidos.mp3',
+      'usa_silencio.mp3'
+    ];
+
     const textContainer = document.createElement('div');
     this.textContainer = textContainer;
     textContainer.style.cssText = `
@@ -350,10 +359,29 @@ export class InstruccionesTransitionScene extends BaseScene {
     `;
     textContainer.appendChild(currentLineContainer);
 
+    let currentAudio = null;
+
     for (let i = 0; i < lines.length; i++) {
       // Si se solicitó saltear, salir del loop
-      if (this.skipRequested) break;
+      if (this.skipRequested) {
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio = null;
+        }
+        break;
+      }
       const line = lines[i];
+
+      // Play audio
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+      }
+      if (audioFiles[i]) {
+        currentAudio = new Audio(`/game-assets/instrucciones/voiceovers/${audioFiles[i]}`);
+        currentAudio.volume = 1.0;
+        currentAudio.play().catch(e => console.warn("Audio play failed", e));
+      }
       
       // Limpiar el contenedor antes de agregar nueva línea
       currentLineContainer.innerHTML = '';
@@ -487,6 +515,12 @@ export class InstruccionesTransitionScene extends BaseScene {
         // Última línea - pausa automática
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
+    }
+
+    // Stop any playing audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
     }
 
     // Mantener el texto visible un momento

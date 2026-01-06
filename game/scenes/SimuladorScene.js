@@ -4318,6 +4318,13 @@ export class SimuladorScene extends BaseScene {
       this._hintDelayTimer = null;
     }
     this._hintCycle = null;
+    
+    // Stop hint audio
+    if (this._tutorialAudio) {
+      this._tutorialAudio.pause();
+      this._tutorialAudio.currentTime = 0;
+    }
+
     if (hide) {
       this._hideGoalMessage(immediate);
     }
@@ -4348,6 +4355,17 @@ export class SimuladorScene extends BaseScene {
     const index = state.index % state.hints.length;
     const message = state.hints[index];
     this._showGoalMessage(message);
+    
+    // Play hint audio
+    if (this._tutorialAudio) {
+      const stage = this._stages[this._currentStageIndex];
+      if (stage && stage.id) {
+        const audioPath = `/game-assets/simulador/voiceovers/hint_${stage.id}_${index}.mp3`;
+        this._tutorialAudio.src = audioPath;
+        this._tutorialAudio.play().catch(e => console.warn("Hint audio play failed", e));
+      }
+    }
+
     state.index = (index + 1) % state.hints.length;
 
     const showMs = Math.max(0, showSeconds * 1000);
@@ -5880,6 +5898,10 @@ export class SimuladorScene extends BaseScene {
     this._tutorialCard = card;
     this._tutorialText = text;
     this._tutorialButton = button;
+
+    // Audio for tutorial
+    this._tutorialAudio = new Audio();
+    this._tutorialAudio.volume = 1.0;
   }
 
   _skipTutorial() {
@@ -5890,6 +5912,10 @@ export class SimuladorScene extends BaseScene {
     this._tutorial.paused = false;
     if (this._tutorialOverlay) {
       this._tutorialOverlay.style.display = 'none';
+    }
+    if (this._tutorialAudio) {
+      this._tutorialAudio.pause();
+      this._tutorialAudio.currentTime = 0;
     }
     this._setCursorVisible(true);
   }
@@ -5956,7 +5982,7 @@ export class SimuladorScene extends BaseScene {
 
     this._tutorial.active = true;
     for (let i = 0; i < steps.length; i++) {
-      const step = { ...steps[i], _sequenceId: id };
+      const step = { ...steps[i], _sequenceId: id, _stepIndex: i };
       this._tutorial.queue.push(step);
     }
     if (!this._tutorial.current) {
@@ -5969,6 +5995,12 @@ export class SimuladorScene extends BaseScene {
   }
 
   _showNextTutorialStep() {
+    // Stop previous audio
+    if (this._tutorialAudio) {
+      this._tutorialAudio.pause();
+      this._tutorialAudio.currentTime = 0;
+    }
+
     const next = this._tutorial.queue.shift();
     if (!next) {
       this._tutorial.current = null;
@@ -5990,6 +6022,13 @@ export class SimuladorScene extends BaseScene {
     this._tutorialOverlay.style.display = 'flex';
     this._tutorialOverlay.style.pointerEvents = 'auto';
     this._tutorialText.textContent = next.text || '';
+
+    // Play audio
+    if (this._tutorialAudio && next._sequenceId && next._stepIndex !== undefined) {
+      const audioPath = `/game-assets/simulador/voiceovers/tutorial_${next._sequenceId}_${next._stepIndex}.mp3`;
+      this._tutorialAudio.src = audioPath;
+      this._tutorialAudio.play().catch(e => console.warn("Tutorial audio play failed", e));
+    }
 
     if (next.type === 'highlight' && next.target) {
       if (this._tutorialSpotlight) {

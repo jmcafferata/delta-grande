@@ -3624,6 +3624,16 @@ export class RecorridoScene extends BaseScene {
     }
     this.metadataOverlayAudio.play().catch(e => console.error("Audio play failed:", e));
 
+    // Reproducir voz en off de la especie
+    if (this.currentSpeciesVO) {
+      this.currentSpeciesVO.pause();
+      this.currentSpeciesVO = null;
+    }
+    const voPath = `/game-assets/recorrido/voiceovers/${this.currentSpecies.id}.mp3`;
+    this.currentSpeciesVO = new Audio(voPath);
+    this.currentSpeciesVO.volume = 1.0;
+    this.currentSpeciesVO.play().catch(e => console.warn('Species VO play failed', e));
+
     import('../core/UI.js').then(({ UI }) => {
       const videoEl = document.getElementById('speciesDataVideo');
       const videoOverlay = document.getElementById('videoOverlay');
@@ -3690,6 +3700,12 @@ export class RecorridoScene extends BaseScene {
       const handleEfedraClick = (e) => {
         // If click was on a transparent pixel of the species video, close efedra UI
         if (canClose && this.isVideoPixelTransparent(videoEl, e)) {
+          // Detener voz en off si está reproduciéndose
+          if (this.currentSpeciesVO) {
+            this.currentSpeciesVO.pause();
+            this.currentSpeciesVO = null;
+          }
+
           if (this.metadataOverlayAudio) {
             this.metadataOverlayAudio.pause();
             this.metadataOverlayAudio.currentTime = 0;
@@ -3905,6 +3921,18 @@ export class RecorridoScene extends BaseScene {
 
     // Esperar 3 segundos antes de comenzar el efecto
     setTimeout(() => {
+      // Play voiceover
+      if (this.speciesVoiceover) {
+        this.speciesVoiceover.pause();
+        this.speciesVoiceover = null;
+      }
+      if (this.currentSpecies) {
+          const voiceoverPath = `assets/audio/recorrido/${this.currentSpecies.id}.mp3`;
+          this.speciesVoiceover = new Audio(voiceoverPath);
+          this.speciesVoiceover.volume = 1.0;
+          this.speciesVoiceover.play().catch(e => console.warn("Voiceover play failed", e));
+      }
+
       const totalChars = getPlainTextLength(fullText);
       let currentIndex = 0;
 
@@ -4020,6 +4048,11 @@ export class RecorridoScene extends BaseScene {
         this.metadataOverlayAudio.pause();
         this.metadataOverlayAudio.currentTime = 0;
         this.metadataOverlayAudio = null;
+      }
+
+      if (this.speciesVoiceover) {
+        this.speciesVoiceover.pause();
+        this.speciesVoiceover = null;
       }
 
       if (textOverlay._keyPressHandler) {
@@ -4968,6 +5001,15 @@ export class RecorridoScene extends BaseScene {
         }
         textOverlayShown = true;
 
+        // 🔊 Play transition audio if available
+        if (transitionText.round !== undefined && transitionText.stage !== undefined) {
+          const audioPath = `/game-assets/transiciones/voiceovers/transition_r${transitionText.round}_s${transitionText.stage}.mp3`;
+          const audio = new Audio(audioPath);
+          audio.volume = 1.0;
+          audio.play().catch(e => console.warn('[RecorridoScene] Transition audio play failed', e));
+          barridaOverlay._audio = audio;
+        }
+
         const parentEl = parent || document.body;
         let textOverlay = document.getElementById('transition-text-overlay');
         let created = false;
@@ -5087,6 +5129,15 @@ export class RecorridoScene extends BaseScene {
           if (barridaOverlay._textOverlay && !barridaOverlay._textRemoved) {
             barridaOverlay._textRemoved = true;
             if (barridaOverlay._typewriterInterval) clearInterval(barridaOverlay._typewriterInterval);
+
+            // 🛑 Stop Audio
+            if (barridaOverlay._audio) {
+              try {
+                barridaOverlay._audio.pause();
+                barridaOverlay._audio.currentTime = 0;
+                barridaOverlay._audio = null;
+              } catch (e) { /* ignore */ }
+            }
 
             barridaOverlay._textOverlay.style.transition = 'opacity 0.3s ease-out';
             barridaOverlay._textOverlay.style.opacity = '0';
