@@ -573,32 +573,27 @@ export class MenuScene extends BaseScene {
         if (!confirm('¿Estás seguro de que quieres borrar todo el progreso?')) return;
 
         // Limpieza completa del progreso (recorrido, río y simulador)
-        State.resetProgress();
-        const keysToClear = [
-          'deltaPlus.speciesProgress.v1',
-          'deltaPlus.rio.state',
-          'deltaPlus.simulador.state'
-        ];
-        keysToClear.forEach(key => localStorage.removeItem(key));
         Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('deltaPlus.') && !keysToClear.includes(key)) {
+          if (key.startsWith('deltaPlus.')) {
             localStorage.removeItem(key);
           }
         });
 
+        // Reset state
+        State.resetAll();
+
         // Refrescar de inmediato el overlay de progreso a 0%
         if (window.progressManager) {
-          window.progressManager.setVisible(true);
           window.progressManager.updateAllProgress();
         } else if (typeof window.updateProgressOverlay === 'function') {
           window.updateProgressOverlay();
         }
 
-        // Volver a la pantalla de especies para iniciar desde cero
-        location.hash = '#recorrido';
-
         console.log('🗑️ Todo el progreso ha sido borrado del localStorage');
-        alert('Progreso borrado exitosamente');
+        
+        // Volver al inicio y recargar
+        location.hash = '#menu';
+        location.reload();
       });
       
       // Colocar los botones fuera del contenedor escalable, en el wrapper

@@ -1515,6 +1515,16 @@ class Deck {
   }
 
   async build() {
+    // Load progress
+    let savedCompleted = [];
+    try {
+      const saved = localStorage.getItem('deltaPlus.rio.state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        savedCompleted = state.completedStages || [];
+      }
+    } catch (e) {}
+
     // Clear existing
     this.container.innerHTML = '';
 
@@ -1651,8 +1661,9 @@ class Deck {
       });
 
       // Start undiscovered → show silhouette only
-      modelTex.visible = false;
-      modelSil.visible = true;
+      const isActuallyCompleted = savedCompleted.includes(speciesDef.key);
+      modelTex.visible = isActuallyCompleted;
+      modelSil.visible = !isActuallyCompleted;
 
       const baseName = plain;
 
@@ -1670,9 +1681,9 @@ class Deck {
         modelWrap,
         baseName,
         fullDisplayName: speciesDef.displayName,
-        revealed: false,
-        completed: false,
-        count: 0,
+        revealed: isActuallyCompleted,
+        completed: isActuallyCompleted,
+        count: isActuallyCompleted ? totalForThisSpecies : 0,
         totalCount: totalForThisSpecies,
         winCount: totalForThisSpecies,
         originalMaterials,
@@ -1680,6 +1691,11 @@ class Deck {
         bgSel: imgSelected,
         bgDone: imgCompleted
       });
+
+      if (isActuallyCompleted) {
+        cardEl.classList.add('completed');
+        numbersEl.textContent = `${totalForThisSpecies}\n${totalForThisSpecies}`;
+      }
     }
 
     // Initial selection
@@ -4863,6 +4879,21 @@ export class RioScene extends BaseScene {
     if (!this._tagProgress?.barFillEl || !this._tagProgress?.labelEl) return;
 
     const s = snapshot || (this.deck?.getProgressSnapshot ? this.deck.getProgressSnapshot() : null);
+
+    // Save species progress to localStorage for MenuScene overlay
+    if (this.deck?.cards) {
+      const completedStages = this.deck.cards
+        .filter(c => c.completed)
+        .map(c => c.key);
+      
+      localStorage.setItem('deltaPlus.rio.state', JSON.stringify({ completedStages }));
+      
+      // Update global progress manager if exists
+      if (window.progressManager) {
+        window.progressManager.updateAllProgress();
+      }
+    }
+
     const pct = Math.max(0, Math.min(100, Math.round((s?.progress ?? 0) * 100)));
     this._tagProgress.barFillEl.style.width = `${pct}%`;
     this._tagProgress.labelEl.textContent = `Progreso ${pct}%`;

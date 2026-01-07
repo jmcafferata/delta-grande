@@ -180,13 +180,22 @@ hideMainMenu();
 
 mainButtons.new?.addEventListener('click', async () => {
   if (confirm('¿Estás seguro de que quieres comenzar de nuevo? Se borrará todo tu progreso.')) {
-    // Clear SpeciesManager progress
-    localStorage.removeItem('deltaPlus.speciesProgress.v1');
+    // Clear all deltaPlus related localStorage data
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('deltaPlus.')) {
+        localStorage.removeItem(key);
+      }
+    });
     
     // Reset game state but keep hasSeenIntro=true (skip full intro, show only logo)
     State.resetProgress();
     
     console.log('✅ Progreso borrado. Iniciando nuevo juego...');
+    
+    // Update progress overlay to 0%
+    if (window.progressManager) {
+      window.progressManager.updateAllProgress();
+    }
     
     // Navigate to MenuScene (solo logo-naranja.webm)
     hideMainMenu();
@@ -242,24 +251,15 @@ startApp();
 // 🔄 Global functions for resetting game progress
 window.resetearProgreso = () => {
   if (confirm('¿Estás seguro de que quieres borrar todo el progreso y volver al inicio? Esta acción no se puede deshacer.')) {
-    // Clear all localStorage data
-    State.resetAll();
-    
-    // Clear SpeciesManager progress
-    localStorage.removeItem('deltaPlus.speciesProgress.v1');
-    
-    // Clear Rio (Subacuático) progress
-    localStorage.removeItem('deltaPlus.rio.state');
-    
-    // Clear Simulador (Isla) progress
-    localStorage.removeItem('deltaPlus.simulador.state');
-    
-    // Clear any other deltaPlus keys
+    // Clear all deltaPlus related localStorage data
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('deltaPlus.')) {
         localStorage.removeItem(key);
       }
     });
+
+    // Clear State data
+    State.resetAll();
     
     console.log('✅ Progreso borrado. Recargando página...');
     
@@ -399,7 +399,7 @@ class ProgressOverlayManager {
       
       const state = JSON.parse(rioState);
       const completedStages = state.completedStages || [];
-      const totalStages = 10; // Adjust based on actual number of stages
+      const totalStages = 8; // Actual number of species in RioScene
       
       return (completedStages.length / totalStages) * 100;
     } catch (e) {

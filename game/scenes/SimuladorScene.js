@@ -737,7 +737,18 @@ export class SimuladorScene extends BaseScene {
     this._goalMessageVisibleTransform = 'translate(-50%, 0)';
 
     this._stages = this.params.progress.stages;
-    this._currentStageIndex = 0;
+    
+    // Load progress for MenuScene overlay and initial stage
+    let savedCompletedCount = 0;
+    try {
+      const saved = localStorage.getItem('deltaPlus.simulador.state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        savedCompletedCount = (state.completedGames || []).length;
+      }
+    } catch (e) {}
+
+    this._currentStageIndex = Math.min(savedCompletedCount, this._stages.length - 1);
     this._stageComplete = false;
 
     this._weatherConfig = null;
@@ -4361,6 +4372,21 @@ export class SimuladorScene extends BaseScene {
   _onStageGoalReached() {
     if (this._stageComplete) return;
     this._stageComplete = true;
+
+    // Save progress for MenuScene overlay
+    const completedGames = [];
+    for (let i = 0; i <= this._currentStageIndex; i++) {
+      if (this._stages[i]) {
+        completedGames.push(this._stages[i].id);
+      }
+    }
+    localStorage.setItem('deltaPlus.simulador.state', JSON.stringify({ completedGames }));
+    
+    // Update global progress manager if exists
+    if (window.progressManager) {
+      window.progressManager.updateAllProgress();
+    }
+
     const stage = this._stages[this._currentStageIndex];
     if (!stage) return;
 
