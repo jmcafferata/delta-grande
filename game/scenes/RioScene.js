@@ -6155,22 +6155,7 @@ export class RioScene extends BaseScene {
     bar.appendChild(fill);
     this._loadingBarFillEl = fill;
 
-    const txt = document.createElement('div');
-    txt.style.cssText = `
-      font-family: "new-science", 'New Science', system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
-      font-weight: 600;
-      font-size: 14px;
-      letter-spacing: 0.06em;
-      color: rgba(255, 255, 255, 0.92);
-      text-align: center;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.55);
-      text-transform: uppercase;
-    `;
-    this._loadingTextEl = txt;
-    this._setLoadingText('');
-
     barContainer.appendChild(bar);
-    barContainer.appendChild(txt);
 
     wrap.appendChild(exterior);
     wrap.appendChild(loader);

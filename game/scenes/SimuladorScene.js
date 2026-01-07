@@ -134,7 +134,7 @@ export const DEFAULT_PARAMS = Object.freeze({
     }),
     // Rain ambient sound when weather shows rain
     rain: Object.freeze({
-      file: 'LLuvia simulador.mp3',
+      file: 'Lluvia simulador.mp3',
       volume: 1,
       delay: 0,
       loop: true

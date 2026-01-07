@@ -435,13 +435,13 @@ export class MenuScene extends BaseScene {
           polygon: '21.42% 41.28%, 31.20% 40.10%, 31.63% 55.08%, 22.99% 59.38%',
         },
         {
-          action: 'subacuatica',
-          title: 'Misión subacuática',
+          action: 'simulador',
+          title: 'Simulador',
           polygon: '41.90% 34.03%, 50.46% 34.03%, 50.58% 48.83%, 42.20% 49.09%',
         },
         {
-          action: 'simulador',
-          title: 'Simulador',
+          action: 'subacuatica',
+          title: 'Misión subacuática',
           polygon: '51.99% 34.90%, 59.72% 34.90%, 59.72% 48.44%, 52.24% 48.05%',
         },
       ];
