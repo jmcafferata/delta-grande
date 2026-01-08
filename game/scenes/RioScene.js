@@ -3559,6 +3559,10 @@ export class RioScene extends BaseScene {
     this._loadingProgressTotal = 0;
     this._loadingProgressCompleted = 0;
 
+    // MenuScene ambient, reused during RioScene loading overlay.
+    this._loadingMenuAmbientAudio = null;
+    this._loadingMenuAmbientFadeRaf = null;
+
     // Deck tutorial hint (one-time): points to selected deck card until 3 fish clicks.
     this._deckTagHintEl = null;
     this._deckTagHintVisible = false;
@@ -3891,6 +3895,7 @@ export class RioScene extends BaseScene {
 
     this._createLoadingOverlay();
     this._setLoadingText('Preparando escena principal...');
+    this._startMenuAmbientForLoading();
     if (this.app?.canvas) {
       this.app.canvas.style.visibility = 'hidden';
       this._originalCanvasCursor = this.app.canvas.style.cursor;
@@ -4342,6 +4347,9 @@ export class RioScene extends BaseScene {
   }
 
   async unmount() {
+
+    // Ensure loading ambient never leaks across scenes.
+    this._stopMenuAmbientForLoading({ immediate: true });
 
     for (const key in this.sounds) {
       if (this.sounds[key] && this.sounds[key].isPlaying) {
@@ -6234,6 +6242,10 @@ export class RioScene extends BaseScene {
 
   _hideLoadingOverlay() {
     if (!this._loadingEl) return;
+
+    // Fade out the menu ambient along with the loading overlay.
+    this._stopMenuAmbientForLoading({ fadeMs: 800 });
+
     // Fade out and remove
     this._loadingEl.style.transition = 'opacity 0.8s ease';
     this._loadingEl.style.opacity = '0';
@@ -6243,6 +6255,96 @@ export class RioScene extends BaseScene {
       }
       this._loadingEl = null;
     }, 800);
+  }
+
+  _startMenuAmbientForLoading() {
+    // Match MenuScene ambient (laboratorio.mp3, start at 68s, fade-in to 0.6).
+    if (this._loadingMenuAmbientAudio) return;
+
+    const MENU_AUDIO_OFFSET = 68; // seconds
+    const MENU_AUDIO_TARGET_VOLUME = 0.6;
+    const MENU_AUDIO_FADE_MS = 2000;
+
+    const audio = new Audio('/game-assets/menu/laboratorio.mp3');
+    audio.loop = true;
+    try { audio.volume = 0; } catch (e) {}
+
+    this._loadingMenuAmbientAudio = audio;
+
+    const startAmbient = () => {
+      // If it was stopped before metadata arrives.
+      if (this._loadingMenuAmbientAudio !== audio) return;
+
+      try {
+        if (typeof audio.duration === 'number' && !isNaN(audio.duration)) {
+          audio.currentTime = MENU_AUDIO_OFFSET < audio.duration ? MENU_AUDIO_OFFSET : 0;
+        }
+      } catch (e) {
+        // Ignore currentTime errors.
+      }
+
+      audio.play().then(() => {
+        const start = performance.now();
+        const step = () => {
+          if (this._loadingMenuAmbientAudio !== audio) return;
+          const t = Math.min(1, (performance.now() - start) / MENU_AUDIO_FADE_MS);
+          try { audio.volume = t * MENU_AUDIO_TARGET_VOLUME; } catch (e) {}
+          if (t < 1) {
+            this._loadingMenuAmbientFadeRaf = requestAnimationFrame(step);
+          } else {
+            try { audio.volume = MENU_AUDIO_TARGET_VOLUME; } catch (e) {}
+            this._loadingMenuAmbientFadeRaf = null;
+          }
+        };
+        this._loadingMenuAmbientFadeRaf = requestAnimationFrame(step);
+      }).catch(() => {
+        // Autoplay might be blocked; keep silent.
+      });
+    };
+
+    if (audio.readyState >= 1) {
+      startAmbient();
+    } else {
+      audio.addEventListener('loadedmetadata', startAmbient, { once: true });
+      setTimeout(startAmbient, 500);
+    }
+  }
+
+  _stopMenuAmbientForLoading({ immediate = false, fadeMs = 300 } = {}) {
+    const audio = this._loadingMenuAmbientAudio;
+    if (!audio) return;
+
+    if (this._loadingMenuAmbientFadeRaf) {
+      cancelAnimationFrame(this._loadingMenuAmbientFadeRaf);
+      this._loadingMenuAmbientFadeRaf = null;
+    }
+
+    if (immediate || fadeMs <= 0) {
+      try { audio.pause(); } catch (e) {}
+      try { audio.currentTime = 0; } catch (e) {}
+      this._loadingMenuAmbientAudio = null;
+      return;
+    }
+
+    const startVol = (() => {
+      try { return Number(audio.volume) || 0; } catch (e) { return 0; }
+    })();
+    const start = performance.now();
+    const step = () => {
+      if (this._loadingMenuAmbientAudio !== audio) return;
+      const t = Math.min(1, (performance.now() - start) / fadeMs);
+      const v = startVol * (1 - t);
+      try { audio.volume = Math.max(0, v); } catch (e) {}
+      if (t < 1) {
+        this._loadingMenuAmbientFadeRaf = requestAnimationFrame(step);
+      } else {
+        this._loadingMenuAmbientFadeRaf = null;
+        try { audio.pause(); } catch (e) {}
+        try { audio.currentTime = 0; } catch (e) {}
+        this._loadingMenuAmbientAudio = null;
+      }
+    };
+    this._loadingMenuAmbientFadeRaf = requestAnimationFrame(step);
   }
 
 

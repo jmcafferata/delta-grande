@@ -223,6 +223,36 @@ export class RecorridoScene extends BaseScene {
     this._currentSpeciesVOTimer = null;
     this._transitionVoiceoverTimer = null;
     this.transitionVoiceover = null;
+
+    // 🧼 Completion overlay lifecycle
+    this.completionOverlayEl = null;
+    this._completionOverlayAudioHintTimeout = null;
+  }
+
+  hideCompletionOverlay({ immediate = false } = {}) {
+    const overlay = this.completionOverlayEl || document.getElementById('completion-overlay');
+    if (!overlay) {
+      this.completionOverlayEl = null;
+      return;
+    }
+
+    if (this._completionOverlayAudioHintTimeout) {
+      clearTimeout(this._completionOverlayAudioHintTimeout);
+      this._completionOverlayAudioHintTimeout = null;
+    }
+
+    const removeNow = () => {
+      try { overlay.remove(); } catch { }
+      if (this.completionOverlayEl === overlay) this.completionOverlayEl = null;
+    };
+
+    if (immediate) {
+      removeNow();
+      return;
+    }
+
+    try { overlay.style.opacity = '0'; } catch { }
+    setTimeout(removeNow, 500);
   }
 
   _stopVoiceAudio(audio) {
@@ -1192,6 +1222,9 @@ export class RecorridoScene extends BaseScene {
 
 
   async unmount() {
+
+    // 🧼 Ensure completion overlay never leaks across scenes
+    this.hideCompletionOverlay({ immediate: true });
 
     // 🔇 Ensure no voiceovers keep playing across scenes
     this.stopRecorridoVoiceovers();
@@ -4601,6 +4634,9 @@ export class RecorridoScene extends BaseScene {
     const round = this.speciesManager.getProgress().round;
     const finalRound = isFinalRound || round >= TOTAL_ROUNDS;
 
+    // Remove any previous instance (can otherwise leak across scene changes)
+    this.hideCompletionOverlay({ immediate: true });
+
     const overlay = document.createElement('div');
     overlay.id = 'completion-overlay';
     overlay.style.cssText = `
@@ -4666,16 +4702,15 @@ export class RecorridoScene extends BaseScene {
       };
       btnContinue.onclick = () => {
         const advanced = this.speciesManager.advanceRound();
-        overlay.style.opacity = '0';
+        this.hideCompletionOverlay();
         setTimeout(() => {
-          overlay.remove();
           if (advanced) {
             // Usar la transición dedicada antes de volver al recorrido
             location.hash = '#recorrido-transition';
           } else {
             location.hash = '#menu';
           }
-        }, 500);
+        }, 520);
       };
 
       const btnMenu = document.createElement('button');
@@ -4690,7 +4725,10 @@ export class RecorridoScene extends BaseScene {
         btnMenu.style.background = 'transparent';
       };
       btnMenu.onclick = () => {
-        location.hash = '#menu';
+        this.hideCompletionOverlay();
+        setTimeout(() => {
+          location.hash = '#menu';
+        }, 520);
       };
 
       buttonsContainer.appendChild(btnContinue);
@@ -4708,11 +4746,10 @@ export class RecorridoScene extends BaseScene {
         btnLab.style.background = 'transparent';
       };
       btnLab.onclick = () => {
-        overlay.style.opacity = '0';
+        this.hideCompletionOverlay();
         setTimeout(() => {
-          overlay.remove();
           location.hash = '#menu';
-        }, 500);
+        }, 520);
       };
 
       buttonsContainer.appendChild(btnLab);
@@ -4722,6 +4759,7 @@ export class RecorridoScene extends BaseScene {
 
     const parent = this.overlayRoot || document.body;
     parent.appendChild(overlay);
+    this.completionOverlayEl = overlay;
 
     // Fade in
     requestAnimationFrame(() => {
@@ -4775,7 +4813,7 @@ export class RecorridoScene extends BaseScene {
       tryPlay();
 
       // Si a los 600ms no hay reproducción, mostrar el botón para que el usuario permita audio.
-      setTimeout(() => {
+      this._completionOverlayAudioHintTimeout = setTimeout(() => {
         try {
           let playing = false;
           try {
