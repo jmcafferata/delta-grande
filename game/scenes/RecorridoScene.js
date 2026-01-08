@@ -3977,6 +3977,9 @@ export class RecorridoScene extends BaseScene {
     // 👇 Use dynamic species text
     const fullText = this.currentSpecies?.text || "Texto no disponible";
 
+    // Dejar vacío al abrir: el texto se muestra con delay (typewriter)
+    // para que no aparezca instantáneamente al click.
+
     // Caracteres para el efecto glitch
     const glitchChars = "!@#$%^&*()_+-=[]{}|;':\",./<>?~`abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -4027,49 +4030,73 @@ export class RecorridoScene extends BaseScene {
       return result;
     };
 
-    // Esperar 3 segundos antes de comenzar el efecto
+    // Voz en off: mantener delay, pero el texto se muestra ya
     if (this._speciesVoiceoverTimer) {
       clearTimeout(this._speciesVoiceoverTimer);
       this._speciesVoiceoverTimer = null;
     }
     this._speciesVoiceoverTimer = setTimeout(() => {
       this._speciesVoiceoverTimer = null;
-      // Play voiceover
       if (this.speciesVoiceover) {
         this.speciesVoiceover.pause();
         this.speciesVoiceover = null;
       }
       if (this.currentSpecies) {
-          const voiceoverPath = `assets/audio/recorrido/${this.currentSpecies.id}.mp3`;
-          this.speciesVoiceover = new Audio(voiceoverPath);
-          this.speciesVoiceover.volume = 1.0;
-          this.stopRecorridoVoiceovers(this.speciesVoiceover);
-          this.speciesVoiceover.play().catch(e => console.warn("Voiceover play failed", e));
+        const voiceoverPath = `assets/audio/recorrido/${this.currentSpecies.id}.mp3`;
+        this.speciesVoiceover = new Audio(voiceoverPath);
+        this.speciesVoiceover.volume = 1.0;
+        this.stopRecorridoVoiceovers(this.speciesVoiceover);
+        this.speciesVoiceover.play().catch(e => console.warn("Voiceover play failed", e));
       }
+    }, 3000);
 
+    // Typewriter/glitch: esperar un poco antes de iniciar (para que no cargue "de golpe")
+    try {
+      const TYPEWRITER_START_DELAY_MS = 2000;
+      const TYPEWRITER_STEP_MS = 12;
       const totalChars = getPlainTextLength(fullText);
       let currentIndex = 0;
 
-      const typewriterInterval = setInterval(() => {
-        if (currentIndex <= totalChars) {
-          // Obtener HTML parcial hasta el índice actual
-          let displayText = getPartialHTML(fullText, currentIndex);
+      // Clear text so the effect is visible, but only after a short delay
+      textContent.innerHTML = '';
 
-          // Agregar algunos caracteres glitch después del texto actual
-          const glitchCount = Math.min(3, totalChars - currentIndex);
-          for (let i = 0; i < glitchCount; i++) {
-            displayText += `<span style="opacity: 0.6; animation: glitch-flicker 0.1s infinite;">${getRandomGlitchChar()}</span>`;
+      const startTypewriter = () => {
+        const typewriterInterval = setInterval(() => {
+          try {
+            if (currentIndex <= totalChars) {
+              let displayText = getPartialHTML(fullText, currentIndex);
+              const glitchCount = Math.min(3, totalChars - currentIndex);
+              for (let i = 0; i < glitchCount; i++) {
+                displayText += `<span style="opacity: 0.6; animation: glitch-flicker 0.1s infinite;">${getRandomGlitchChar()}</span>`;
+              }
+              textContent.innerHTML = displayText;
+              currentIndex++;
+            } else {
+              textContent.innerHTML = fullText;
+              clearInterval(typewriterInterval);
+              if (textOverlay) textOverlay._typewriterInterval = null;
+            }
+          } catch (e) {
+            // If partial HTML reconstruction fails, show the full text and stop
+            try { textContent.innerHTML = fullText; } catch (e2) { textContent.textContent = String(fullText); }
+            clearInterval(typewriterInterval);
+            if (textOverlay) textOverlay._typewriterInterval = null;
           }
+        }, TYPEWRITER_STEP_MS);
 
-          textContent.innerHTML = displayText;
-          currentIndex++;
-        } else {
-          // Terminar el efecto
-          textContent.innerHTML = fullText;
-          clearInterval(typewriterInterval);
-        }
-      }, 5); // 25ms entre cada caracter (más rápido)
-    }, 3000); // Esperar 3 segundos
+        // Store for cleanup on close
+        textOverlay._typewriterInterval = typewriterInterval;
+      };
+
+      // Delay the start by 2s
+      textOverlay._typewriterTimer = setTimeout(() => {
+        textOverlay._typewriterTimer = null;
+        startTypewriter();
+      }, TYPEWRITER_START_DELAY_MS);
+    } catch (e) {
+      // Worst-case fallback: keep full text visible
+      try { textContent.innerHTML = fullText; } catch (e2) { textContent.textContent = String(fullText); }
+    }
 
     // Agregar CSS para el efecto de parpadeo del glitch
     if (!document.getElementById('glitch-flicker-style')) {
@@ -4158,6 +4185,14 @@ export class RecorridoScene extends BaseScene {
   removeTextOverlay() {
     const textOverlay = document.getElementById('efedra-text-overlay');
     if (textOverlay) {
+      if (textOverlay._typewriterTimer) {
+        try { clearTimeout(textOverlay._typewriterTimer); } catch (e) { /* ignore */ }
+        textOverlay._typewriterTimer = null;
+      }
+      if (textOverlay._typewriterInterval) {
+        try { clearInterval(textOverlay._typewriterInterval); } catch (e) { /* ignore */ }
+        textOverlay._typewriterInterval = null;
+      }
       if (this.metadataOverlayAudio) {
         this.metadataOverlayAudio.pause();
         this.metadataOverlayAudio.currentTime = 0;
@@ -4655,18 +4690,6 @@ export class RecorridoScene extends BaseScene {
         btnMenu.style.background = 'transparent';
       };
       btnMenu.onclick = () => {
-        // Si el juego se abrió como `/game/` (sin `index.html`),
-        // forzar `/game/index.html#menu` para evitar rutas de directorio.
-        try {
-          const url = new URL(window.location.href);
-          if (url.pathname.endsWith('/game/')) {
-            url.pathname = `${url.pathname}index.html`;
-            url.hash = '#menu';
-            window.location.replace(url.toString());
-            return;
-          }
-        } catch (e) {}
-
         location.hash = '#menu';
       };
 
@@ -4783,6 +4806,20 @@ export class RecorridoScene extends BaseScene {
     const flechaClickAudio = new Audio('/game-assets/recorrido/sonido/Pez agarrado.mp3');
     flechaClickAudio.volume = 0.5;
     flechaClickAudio.play().catch(e => console.error("Flecha click audio play failed:", e));
+
+    // 🔊 Reproducir sonido de barrida/transición INMEDIATO al click
+    // (antes de imports/fetch/tweens para evitar demoras perceptibles)
+    try {
+      if (this.transitionAudio) {
+        try { this.transitionAudio.pause(); } catch (e) { }
+        try { this.transitionAudio.currentTime = 0; } catch (e) { }
+      }
+      this.transitionAudio = new Audio('/game-assets/recorrido/sonido/Transicion delta mas.mp3');
+      this.transitionAudio.volume = 0.5;
+      this.transitionAudio.play().catch(e => console.error("Transition audio play failed:", e));
+    } catch (e) {
+      console.warn('[RecorridoScene] Failed to start transition audio immediately', e);
+    }
 
     // 🎵 Mantener el audio ambiente del stage durante la transición.
     // El crossfade al próximo ambiente se hace en loadStage().
@@ -4975,19 +5012,20 @@ export class RecorridoScene extends BaseScene {
         zocaloVideo.style.opacity = '0';
       }
 
-      // 🔊 Reproducir audio de transición al inicio (con la primera barrida)
-      if (this.transitionAudio) {
-        this.transitionAudio.pause();
-        this.transitionAudio.currentTime = 0;
-      }
-      this.transitionAudio = new Audio('/game-assets/recorrido/sonido/Transicion delta mas.mp3');
-      this.transitionAudio.volume = 0.5;
-      // Delay voiceover narration by 3 seconds
-      setTimeout(() => {
-        if (this.transitionAudio) {
+      // 🔊 Asegurar que el audio de transición ya esté sonando (se inicia en el click)
+      // Nota: NO aplicamos delay acá; el delay corresponde al voiceover, no a la barrida.
+      try {
+        if (!this.transitionAudio) {
+          this.transitionAudio = new Audio('/game-assets/recorrido/sonido/Transicion delta mas.mp3');
+        }
+        this.transitionAudio.volume = 0.5;
+        // Si por alguna razón aún no arrancó, intentarlo ahora.
+        if (this.transitionAudio.paused) {
           this.transitionAudio.play().catch(e => console.error("Transition audio play failed:", e));
         }
-      }, 3000);
+      } catch (e) {
+        console.warn('[RecorridoScene] Failed to ensure transition audio is playing', e);
+      }
 
       const nextSceneIndex = this.current + 1;
 
