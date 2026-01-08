@@ -556,9 +556,9 @@ export class MenuScene extends BaseScene {
       });
       
       backBtn.addEventListener('click', () => {
-        // Volver a la página de inicio
-        location.hash = '#';
+        // Volver al landing root (fuera del juego)
         finalizeAction('back');
+        window.location.assign('/');
       });
 
       // Botón de borrar progreso en la esquina

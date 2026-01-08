@@ -102518,36 +102518,47 @@ vec3 prepareOutputFromGamma(vec3 gammaColor) {
 					this.cameraManager = new CameraManager(global, sceneBound);
 					applyCamera(this.cameraManager.camera);
 					// Toggle zoom on tap/click by adjusting camera FOV
+					// Drive the animation from the PlayCanvas update loop so it stays smooth even when the
+					// app is running in on-demand render mode (renderNextFrame).
 					const zoomState = {
 						active: false,
-						baseFov: this.cameraManager.camera.fov,
-						zoomFov: Math.max(35, this.cameraManager.camera.fov * 0.85), // subtle zoom-in
-						anim: null
+						baseFov: null,
+						zoomFov: null,
+						animating: false,
+						animElapsed: 0,
+						animDuration: 0.55, // seconds
+						fromFov: 0,
+						toFov: 0
 					};
-					const animateFov = (toFov) => {
-						if (zoomState.anim) cancelAnimationFrame(zoomState.anim);
-						const fromFov = this.cameraManager.camera.fov;
-						const duration = 400; // ms
-						const start = performance.now();
-						const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t));
-						const step = (now) => {
-							const t = Math.min(1, (now - start) / duration);
-							const eased = easeInOut(t);
-							const fov = fromFov + (toFov - fromFov) * eased;
-							this.cameraManager.setFov(fov);
-							app.renderNextFrame = true;
-							if (t < 1) {
-								zoomState.anim = requestAnimationFrame(step);
-							} else {
-								zoomState.anim = null;
-							}
-						};
-						zoomState.anim = requestAnimationFrame(step);
+					const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+					const startFovAnim = (toFov) => {
+						zoomState.fromFov = this.cameraManager.camera.fov;
+						zoomState.toFov = toFov;
+						zoomState.animElapsed = 0;
+						zoomState.animating = true;
+						app.renderNextFrame = true;
 					};
+					app.on('update', (dt) => {
+						if (!zoomState.animating) return;
+						zoomState.animElapsed += dt;
+						const t = Math.min(1, zoomState.animElapsed / zoomState.animDuration);
+						const eased = easeInOut(t);
+						const fov = zoomState.fromFov + (zoomState.toFov - zoomState.fromFov) * eased;
+						this.cameraManager.setFov(fov);
+						app.renderNextFrame = true;
+						if (t >= 1) {
+							zoomState.animating = false;
+						}
+					});
 					const toggleZoom = () => {
+						// When entering zoom, snapshot the current fov as the base, so toggling back never jumps.
+						if (!zoomState.active) {
+							zoomState.baseFov = this.cameraManager.camera.fov;
+							zoomState.zoomFov = Math.max(35, zoomState.baseFov * 0.85); // subtle zoom-in
+						}
 						zoomState.active = !zoomState.active;
-						const nextFov = zoomState.active ? zoomState.zoomFov : zoomState.baseFov;
-						animateFov(nextFov);
+						const nextFov = zoomState.active ? zoomState.zoomFov : (zoomState.baseFov ?? this.cameraManager.camera.fov);
+						startFovAnim(nextFov);
 					};
 					const canvasEl = app.graphicsDevice.canvas;
 					let pointerStart = null;

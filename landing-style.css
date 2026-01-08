@@ -381,8 +381,8 @@
         }
 
         #splat-overlay {
-            cursor: pointer;
-            pointer-events: auto;
+            cursor: auto;
+            pointer-events: none;
         }
 
         #splat-container {
@@ -705,6 +705,8 @@
         .scroll-indicator.is-visible {
             opacity: 1;
             animation: scrollPulse 1.6s ease-in-out infinite;
+            pointer-events: auto;
+            cursor: pointer;
         }
 
         .scroll-indicator .arrow {

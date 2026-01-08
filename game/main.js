@@ -70,7 +70,8 @@ const mainMenuOverlay = document.getElementById('mainMenuOverlay');
 const pauseButtons = {
 resume: pauseOverlay?.querySelector('[data-action="resume"]'),
 restart: pauseOverlay?.querySelector('[data-action="restart"]'),
-exit: pauseOverlay?.querySelector('[data-action="exit"]')
+exit: pauseOverlay?.querySelector('[data-action="exit"]'),
+quitGame: pauseOverlay?.querySelector('[data-action="quit-game"]')
 };
 
 const mainButtons = {
@@ -170,6 +171,16 @@ pauseButtons.exit?.addEventListener('click', () => {
     // Fallback: navegar con el router si reload falla
     console.warn('Reload failed, navigating via router', e);
     router.navigate('#menu');
+  }
+});
+
+pauseButtons.quitGame?.addEventListener('click', () => {
+  // Salir completamente del juego (landing root)
+  try {
+    window.location.href = '/';
+  } catch (e) {
+    console.warn('Navigation to / failed', e);
+    window.location.assign('/');
   }
 });
 

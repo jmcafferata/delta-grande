@@ -1353,6 +1353,10 @@ window.addEventListener('keydown', (ev) => {
     const video = document.getElementById('poema-video');
     if (!firstFloatingText || !videoSection || !video) return;
 
+    // Trigger video mode slightly before the floating text fully leaves the viewport.
+    // This makes the Poema section fade in earlier while scrolling.
+    const VIDEO_PRIORITY_OFFSET = 0.5; // ~18% of viewport height from the top
+
     const body = document.body;
     let currentMode = null;
 
@@ -1382,19 +1386,28 @@ window.addEventListener('keydown', (ev) => {
 
     const computeMode = () => {
         const rect = firstFloatingText.getBoundingClientRect();
-        return rect.bottom <= 0 ? 'video' : 'splat';
+        const gateTopPx = (window.innerHeight || 0) * VIDEO_PRIORITY_OFFSET;
+        return rect.bottom <= gateTopPx ? 'video' : 'splat';
     };
 
     const applyCurrentMode = () => applyMode(computeMode());
 
     if ('IntersectionObserver' in window) {
+        // Shrink the observer root from the top so "not intersecting" occurs earlier
+        // (i.e., when the floating text's bottom reaches ~18% of the viewport height).
+        const gateTopPx = Math.round((window.innerHeight || 0) * VIDEO_PRIORITY_OFFSET);
         const observer = new IntersectionObserver((entries) => {
             entries.forEach((entry) => {
                 if (entry.target !== firstFloatingText) return;
-                const passed = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+
+                // Determine whether we've scrolled past the floating text relative to the
+                // effective root top (accounts for rootMargin).
+                const rootTop = entry.rootBounds?.top ?? 0;
+                const passed = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
                 applyMode(passed ? 'video' : 'splat');
             });
-        }, { threshold: 0 });
+        }, { threshold: 0, rootMargin: `-${gateTopPx}px 0px 0px 0px` });
+
         observer.observe(firstFloatingText);
         applyCurrentMode();
     } else {
@@ -2189,6 +2202,32 @@ window.addEventListener('keydown', (ev) => {
             }
 
             window.addEventListener('dg:entry-ui', startTimer, { once: true });
+        })();
+
+// --------------------------------------------------
+// Make the scroll indicator clickable: scroll one screen down
+        (function () {
+            const indicator = document.getElementById('scroll-indicator');
+            if (!indicator) return;
+
+            const prefersReducedMotion = typeof window !== 'undefined'
+                && window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            const scrollDownOneScreen = () => {
+                try {
+                    window.scrollBy({
+                        top: window.innerHeight,
+                        left: 0,
+                        behavior: prefersReducedMotion ? 'auto' : 'smooth'
+                    });
+                } catch {
+                    // Older browsers
+                    window.scrollBy(0, window.innerHeight);
+                }
+            };
+
+            indicator.addEventListener('click', scrollDownOneScreen);
         })();
 
 // --------------------------------------------------
