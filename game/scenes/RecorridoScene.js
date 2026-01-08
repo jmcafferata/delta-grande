@@ -217,6 +217,46 @@ export class RecorridoScene extends BaseScene {
     // 🎯 Camera debug overlay
     this.cameraDebugOverlay = null;
     this.shaderMaterials = new Set();
+
+    // 🔊 Voiceover non-overlap
+    this._speciesVoiceoverTimer = null;
+    this._currentSpeciesVOTimer = null;
+    this._transitionVoiceoverTimer = null;
+    this.transitionVoiceover = null;
+  }
+
+  _stopVoiceAudio(audio) {
+    if (!audio) return;
+    try { audio.pause(); } catch (e) { /* ignore */ }
+    try { audio.currentTime = 0; } catch (e) { /* ignore */ }
+  }
+
+  stopRecorridoVoiceovers(except = null) {
+    if (this._speciesVoiceoverTimer) {
+      clearTimeout(this._speciesVoiceoverTimer);
+      this._speciesVoiceoverTimer = null;
+    }
+    if (this._currentSpeciesVOTimer) {
+      clearTimeout(this._currentSpeciesVOTimer);
+      this._currentSpeciesVOTimer = null;
+    }
+    if (this._transitionVoiceoverTimer) {
+      clearTimeout(this._transitionVoiceoverTimer);
+      this._transitionVoiceoverTimer = null;
+    }
+
+    if (this.speciesVoiceover && this.speciesVoiceover !== except) {
+      this._stopVoiceAudio(this.speciesVoiceover);
+      this.speciesVoiceover = null;
+    }
+    if (this.currentSpeciesVO && this.currentSpeciesVO !== except) {
+      this._stopVoiceAudio(this.currentSpeciesVO);
+      this.currentSpeciesVO = null;
+    }
+    if (this.transitionVoiceover && this.transitionVoiceover !== except) {
+      this._stopVoiceAudio(this.transitionVoiceover);
+      this.transitionVoiceover = null;
+    }
   }
 
   // --- ADD: campos nuevos en la clase
@@ -977,12 +1017,13 @@ export class RecorridoScene extends BaseScene {
       position: fixed;
       inset: 0;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: center;
       gap: 12px;
+      padding-bottom: max(24px, 6vh);
       background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0.9));
       color: #fff;
-      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: "new-science", 'New Science', system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
       font-size: 15px;
       font-weight: 600;
       letter-spacing: 0.5px;
@@ -1151,6 +1192,9 @@ export class RecorridoScene extends BaseScene {
 
 
   async unmount() {
+
+    // 🔇 Ensure no voiceovers keep playing across scenes
+    this.stopRecorridoVoiceovers();
 
     // 👇 Ocultar elementos específicos de RecorridoScene (inventory panel y zócalo)
     const inventoryPanel = document.getElementById('inventoryPanel');
@@ -2229,12 +2273,47 @@ export class RecorridoScene extends BaseScene {
     }
 
     // Stage-specific audio (different from background music)
-    if (this.audio) { this.audio.pause(); this.audio = null; }
+    // Keep ambience continuous: crossfade instead of hard-stop.
+    const prevStageAudio = this.audio;
+    const targetStageVolume = 0.8;
+
     if (st.audio) {
-      this.audio = AssetLoader.audio(st.audio);
-      this.audio.loop = true;
-      this.audio.volume = 0.8;
-      this.audio.play().catch(() => { });
+      const nextStageAudio = AssetLoader.audio(st.audio);
+      nextStageAudio.loop = true;
+      nextStageAudio.volume = 0;
+      this.audio = nextStageAudio;
+
+      // Try to start immediately (if blocked, the previous audio keeps playing)
+      nextStageAudio.play().catch(() => { });
+
+      const fadeMs = 1000;
+      const t0 = performance.now();
+      const prevStartVol = (prevStageAudio && typeof prevStageAudio.volume === 'number') ? prevStageAudio.volume : 0;
+
+      const tick = () => {
+        const t = Math.min(1, (performance.now() - t0) / fadeMs);
+
+        try { nextStageAudio.volume = targetStageVolume * t; } catch (e) { /* ignore */ }
+
+        if (prevStageAudio && prevStageAudio !== nextStageAudio) {
+          try { prevStageAudio.volume = prevStartVol * (1 - t); } catch (e) { /* ignore */ }
+        }
+
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          if (prevStageAudio && prevStageAudio !== nextStageAudio) {
+            try { prevStageAudio.pause(); } catch (e) { /* ignore */ }
+          }
+          try { nextStageAudio.volume = targetStageVolume; } catch (e) { /* ignore */ }
+        }
+      };
+      requestAnimationFrame(tick);
+    } else {
+      if (this.audio) {
+        try { this.audio.pause(); } catch (e) { /* ignore */ }
+        this.audio = null;
+      }
     }
 
     // 🔊 Load species spatial audio - SOLO si la especie NO ha sido descubierta
@@ -2467,8 +2546,12 @@ export class RecorridoScene extends BaseScene {
     const videoOverlay = document.getElementById('videoOverlay');
     const isOverlayVisible = videoOverlay && videoOverlay.style.display === 'block';
 
+    // Also block zoom if Efedra species overlay is visible
+    const efedraWrapper = document.querySelector('.efedra-wrapper');
+    const isEfedraVisible = efedraWrapper && efedraWrapper.style.display !== 'none';
+
     // Don't zoom if video overlay is visible
-    if (isOverlayVisible) return;
+    if (isOverlayVisible || isEfedraVisible) return;
 
     e.preventDefault();
 
@@ -2503,6 +2586,12 @@ export class RecorridoScene extends BaseScene {
     const videoOverlay = document.getElementById('videoOverlay');
     if (videoOverlay && videoOverlay.style.display === 'block') {
       return; // Don't process clicks on the 3D scene while overlay is open
+    }
+
+    // 👇 Prevent clicks when Efedra (species) overlay is visible
+    const efedraWrapper = document.querySelector('.efedra-wrapper');
+    if (efedraWrapper && efedraWrapper.style.display !== 'none') {
+      return;
     }
 
     // Calculate mouse position with 200px x 200px hitbox
@@ -3629,10 +3718,25 @@ export class RecorridoScene extends BaseScene {
       this.currentSpeciesVO.pause();
       this.currentSpeciesVO = null;
     }
+    if (this._currentSpeciesVOTimer) {
+      clearTimeout(this._currentSpeciesVOTimer);
+      this._currentSpeciesVOTimer = null;
+    }
+
+    // Make sure only one voice is active
+    this.stopRecorridoVoiceovers();
+
     const voPath = `/game-assets/recorrido/voiceovers/${this.currentSpecies.id}.mp3`;
     this.currentSpeciesVO = new Audio(voPath);
     this.currentSpeciesVO.volume = 1.0;
-    this.currentSpeciesVO.play().catch(e => console.warn('Species VO play failed', e));
+    // Delay voiceover playback by 3 seconds
+    this._currentSpeciesVOTimer = setTimeout(() => {
+      this._currentSpeciesVOTimer = null;
+      if (this.currentSpeciesVO) {
+        this.stopRecorridoVoiceovers(this.currentSpeciesVO);
+        this.currentSpeciesVO.play().catch(e => console.warn('Species VO play failed', e));
+      }
+    }, 3000);
 
     import('../core/UI.js').then(({ UI }) => {
       const videoEl = document.getElementById('speciesDataVideo');
@@ -3704,6 +3808,10 @@ export class RecorridoScene extends BaseScene {
           if (this.currentSpeciesVO) {
             this.currentSpeciesVO.pause();
             this.currentSpeciesVO = null;
+          }
+          if (this._currentSpeciesVOTimer) {
+            clearTimeout(this._currentSpeciesVOTimer);
+            this._currentSpeciesVOTimer = null;
           }
 
           if (this.metadataOverlayAudio) {
@@ -3920,7 +4028,12 @@ export class RecorridoScene extends BaseScene {
     };
 
     // Esperar 3 segundos antes de comenzar el efecto
-    setTimeout(() => {
+    if (this._speciesVoiceoverTimer) {
+      clearTimeout(this._speciesVoiceoverTimer);
+      this._speciesVoiceoverTimer = null;
+    }
+    this._speciesVoiceoverTimer = setTimeout(() => {
+      this._speciesVoiceoverTimer = null;
       // Play voiceover
       if (this.speciesVoiceover) {
         this.speciesVoiceover.pause();
@@ -3930,6 +4043,7 @@ export class RecorridoScene extends BaseScene {
           const voiceoverPath = `assets/audio/recorrido/${this.currentSpecies.id}.mp3`;
           this.speciesVoiceover = new Audio(voiceoverPath);
           this.speciesVoiceover.volume = 1.0;
+          this.stopRecorridoVoiceovers(this.speciesVoiceover);
           this.speciesVoiceover.play().catch(e => console.warn("Voiceover play failed", e));
       }
 
@@ -4524,7 +4638,7 @@ export class RecorridoScene extends BaseScene {
             // Usar la transición dedicada antes de volver al recorrido
             location.hash = '#recorrido-transition';
           } else {
-            window.location.href = '/index.html';
+            location.hash = '#menu';
           }
         }, 500);
       };
@@ -4541,7 +4655,19 @@ export class RecorridoScene extends BaseScene {
         btnMenu.style.background = 'transparent';
       };
       btnMenu.onclick = () => {
-        window.location.href = '/index.html';
+        // Si el juego se abrió como `/game/` (sin `index.html`),
+        // forzar `/game/index.html#menu` para evitar rutas de directorio.
+        try {
+          const url = new URL(window.location.href);
+          if (url.pathname.endsWith('/game/')) {
+            url.pathname = `${url.pathname}index.html`;
+            url.hash = '#menu';
+            window.location.replace(url.toString());
+            return;
+          }
+        } catch (e) {}
+
+        location.hash = '#menu';
       };
 
       buttonsContainer.appendChild(btnContinue);
@@ -4658,30 +4784,8 @@ export class RecorridoScene extends BaseScene {
     flechaClickAudio.volume = 0.5;
     flechaClickAudio.play().catch(e => console.error("Flecha click audio play failed:", e));
 
-    // 🎵 Fade out del audio de la escena
-    if (this.audio) {
-      const fadeOutDuration = 1000; // 1 segundo
-      const startVolume = this.audio.volume;
-      const startTime = performance.now();
-
-      const fadeOutAudio = () => {
-        const elapsed = performance.now() - startTime;
-        const progress = Math.min(elapsed / fadeOutDuration, 1);
-
-        // Fade out usando easeInCubic para una transición suave
-        this.audio.volume = startVolume * (1 - this.easeInCubic(progress));
-
-        if (progress < 1) {
-          requestAnimationFrame(fadeOutAudio);
-        } else {
-          // Pausar y limpiar el audio al finalizar el fade
-          this.audio.pause();
-          this.audio = null;
-        }
-      };
-
-      fadeOutAudio();
-    }
+    // 🎵 Mantener el audio ambiente del stage durante la transición.
+    // El crossfade al próximo ambiente se hace en loadStage().
 
     // 👇 Flash blanco y desaparición de la flecha
     const flechaMeshes = new Set();
@@ -5074,7 +5178,22 @@ export class RecorridoScene extends BaseScene {
           const audioPath = `/game-assets/transiciones/voiceovers/transition_r${transitionText.round}_s${transitionText.stage}.mp3`;
           const audio = new Audio(audioPath);
           audio.volume = 1.0;
-          audio.play().catch(e => console.warn('[RecorridoScene] Transition audio play failed', e));
+          // Make sure only one voice is active
+          this.stopRecorridoVoiceovers();
+          this.transitionVoiceover = audio;
+
+          // Delay voiceover playback by 3 seconds
+          if (this._transitionVoiceoverTimer) {
+            clearTimeout(this._transitionVoiceoverTimer);
+            this._transitionVoiceoverTimer = null;
+          }
+          this._transitionVoiceoverTimer = setTimeout(() => {
+            this._transitionVoiceoverTimer = null;
+            this.stopRecorridoVoiceovers(audio);
+            audio.play().catch(e => console.warn('[RecorridoScene] Transition audio play failed', e));
+          }, 3000);
+
+          barridaOverlay._audioDelayTimer = this._transitionVoiceoverTimer;
           barridaOverlay._audio = audio;
         }
 
@@ -5198,6 +5317,11 @@ export class RecorridoScene extends BaseScene {
             barridaOverlay._textRemoved = true;
             if (barridaOverlay._typewriterInterval) clearInterval(barridaOverlay._typewriterInterval);
 
+            if (barridaOverlay._audioDelayTimer) {
+              try { clearTimeout(barridaOverlay._audioDelayTimer); } catch (e) { /* ignore */ }
+              barridaOverlay._audioDelayTimer = null;
+            }
+
             // 🛑 Stop Audio
             if (barridaOverlay._audio) {
               try {
@@ -5205,6 +5329,14 @@ export class RecorridoScene extends BaseScene {
                 barridaOverlay._audio.currentTime = 0;
                 barridaOverlay._audio = null;
               } catch (e) { /* ignore */ }
+            }
+
+            if (this.transitionVoiceover) {
+              try {
+                this.transitionVoiceover.pause();
+                this.transitionVoiceover.currentTime = 0;
+              } catch (e) { /* ignore */ }
+              this.transitionVoiceover = null;
             }
 
             barridaOverlay._textOverlay.style.transition = 'opacity 0.3s ease-out';

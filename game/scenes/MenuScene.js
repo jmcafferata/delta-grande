@@ -187,16 +187,27 @@ export class MenuScene extends BaseScene {
         opacity: 1;
       `;
 
-      const exterior = new Image();
-      exterior.src = '/game-assets/menu/laboratorio_exterior.webp';
-      exterior.style.cssText = `
+      // Video de fondo: mostrar primero el poster (webp) y reproducir el mp4 cuando esté listo.
+      const exteriorVideo = document.createElement('video');
+      exteriorVideo.src = '/game-assets/menu/laboratorio_exterior.mp4';
+      exteriorVideo.poster = '/game-assets/menu/laboratorio_exterior.webp';
+      exteriorVideo.preload = 'auto';
+      exteriorVideo.muted = true;
+      exteriorVideo.playsInline = true;
+      exteriorVideo.loop = true;
+      exteriorVideo.style.cssText = `
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
         object-fit: cover;
         opacity: 1;
+        pointer-events: none;
       `;
+
+      // iOS/Safari: asegurar playsinline por atributo también.
+      exteriorVideo.setAttribute('playsinline', '');
+      exteriorVideo.setAttribute('muted', '');
 
       const loader = document.createElement('video');
       loader.src = '/game-assets/menu/loader_yellow.webm';
@@ -214,9 +225,25 @@ export class MenuScene extends BaseScene {
       loader.playsInline = true;
       loader.loop = false;
 
-      container.appendChild(exterior);
+      container.appendChild(exteriorVideo);
       container.appendChild(loader);
       overlay.appendChild(container);
+
+      // Intentar reproducir apenas el video pueda hacerlo (el poster cubre mientras carga).
+      const tryStartBackgroundVideo = () => {
+        // HAVE_CURRENT_DATA (2) suele ser suficiente para arrancar.
+        if (exteriorVideo.readyState < 2) return;
+        exteriorVideo.play().catch(() => {
+          // Si el autoplay falla, el poster queda visible.
+        });
+      };
+
+      if (exteriorVideo.readyState >= 2) {
+        tryStartBackgroundVideo();
+      } else {
+        exteriorVideo.addEventListener('canplay', tryStartBackgroundVideo, { once: true });
+        exteriorVideo.addEventListener('loadeddata', tryStartBackgroundVideo, { once: true });
+      }
 
       let playbackStarted = false;
       const startPlayback = () => {
@@ -232,6 +259,7 @@ export class MenuScene extends BaseScene {
           container.style.opacity = '0';
           setTimeout(() => {
             loader.pause();
+            try { exteriorVideo.pause(); } catch (e) {}
             if (container.parentNode) container.parentNode.removeChild(container);
             resolve();
           }, 800);

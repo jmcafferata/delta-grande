@@ -253,6 +253,7 @@ export class RecorridoTransitionScene extends BaseScene {
       return;
     }
     return new Promise((resolve) => {
+      const VOICEOVER_DELAY_MS = 3000;
       const video = document.createElement('video');
       video.src = videoSrc;
       video.style.cssText = `
@@ -300,10 +301,15 @@ export class RecorridoTransitionScene extends BaseScene {
 
       // Reproducir audio de voz en off
       let voiceAudio = null;
+      let voiceStartTimeoutId = null;
+      let ended = false;
       if (audioSrc) {
         voiceAudio = new Audio(audioSrc);
         voiceAudio.volume = 1.0;
-        voiceAudio.play().catch(e => console.warn("Transition voiceover play failed", e));
+        voiceStartTimeoutId = this._trackTimeout(() => {
+          if (this._cleanupRequested || ended || isSkipped()) return;
+          voiceAudio.play().catch(e => console.warn('Transition voiceover play failed', e));
+        }, VOICEOVER_DELAY_MS);
       }
 
       // Iniciar efecto typewriter después de 2 segundos
@@ -422,9 +428,15 @@ export class RecorridoTransitionScene extends BaseScene {
       checkSkip();
 
       const endVideo = () => {
+        ended = true;
         if (skipRafId) {
           cancelAnimationFrame(skipRafId);
           this._rafIds.delete(skipRafId);
+        }
+        if (voiceStartTimeoutId) {
+          clearTimeout(voiceStartTimeoutId);
+          this._timeoutIds.delete(voiceStartTimeoutId);
+          voiceStartTimeoutId = null;
         }
         if (voiceAudio) {
           voiceAudio.pause();
