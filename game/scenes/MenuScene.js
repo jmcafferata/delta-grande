@@ -372,6 +372,21 @@ export class MenuScene extends BaseScene {
       // Fondo de laboratorio interior con fit calculado (cover sin deformar)
       const BASE_IMG_W = 1344;
       const BASE_IMG_H = 768;
+      // Hover sounds for each screen + wkidoki
+      const screenSounds = {
+        recorrido: new Audio('/game-assets/menu/sonidos/Pantalla_recorrido.mp3'),
+        simulador: new Audio('/game-assets/menu/sonidos/Pantalla_simulador.mp3'),
+        subacua: new Audio('/game-assets/menu/sonidos/Pantalla_subacuatico.mp3'),
+        wkidoki: new Audio('/game-assets/menu/sonidos/Pamela_wokidoki.mp3'),
+      };
+      try {
+        Object.values(screenSounds).forEach(a => {
+          a.volume = 0.9;
+          a.preload = 'auto';
+        });
+      } catch (e) {}
+      let menuWrapper = null;
+      let menuContainer = null;
       const sceneLayer = document.createElement('div');
       sceneLayer.style.cssText = `
         position: absolute;
@@ -400,6 +415,158 @@ export class MenuScene extends BaseScene {
       };
       requestAnimationFrame(() => { applyCoverFit(); sceneLayer.style.opacity = '1'; });
       overlay.appendChild(sceneLayer);
+
+      // Pantalla recorrido (video sobre el monitor)
+      const recorridoVideo = document.createElement('video');
+      recorridoVideo.src = '/game-assets/menu/pantallas/pantalla_recorrido.webm';
+      recorridoVideo.loop = true;
+      recorridoVideo.muted = true;
+      recorridoVideo.playsInline = true;
+      recorridoVideo.title = 'Iniciar recorrido';
+      recorridoVideo.style.cssText = `
+        position: absolute;
+        left: 17.02%;
+        top: 38.1%;
+        width: 16.21%;
+        height: 23.28%;
+        object-fit: fill;
+        z-index: 10;
+        pointer-events: auto;
+        cursor: pointer;
+      `;
+      recorridoVideo.addEventListener('mouseenter', () => {
+        recorridoVideo.play().catch(() => {});
+        try {
+          screenSounds.recorrido.currentTime = 0;
+          screenSounds.recorrido.play().catch(() => {});
+        } catch (e) {}
+      });
+      recorridoVideo.addEventListener('mouseleave', () => {
+        recorridoVideo.pause();
+        recorridoVideo.currentTime = 0;
+        try {
+          screenSounds.recorrido.pause();
+          screenSounds.recorrido.currentTime = 0;
+        } catch (e) {}
+      });
+      recorridoVideo.addEventListener('click', () => {
+        location.hash = '#instrucciones-transition';
+        finalizeAction('recorrido');
+      });
+      sceneLayer.appendChild(recorridoVideo);
+
+      // Pantalla simulador (video sobre el monitor)
+      const simuladorVideo = document.createElement('video');
+      simuladorVideo.src = '/game-assets/menu/pantallas/pantalla_simulador.webm';
+      simuladorVideo.loop = true;
+      simuladorVideo.muted = true;
+      simuladorVideo.playsInline = true;
+      simuladorVideo.title = 'Simulador';
+      simuladorVideo.style.cssText = `
+        position: absolute;
+        left: 39.8%;
+        top: 33.0%;
+        width: 11.78%;
+        height: 16%;
+        object-fit: fill;
+        z-index: 10;
+        pointer-events: auto;
+        cursor: pointer;
+      `;
+      simuladorVideo.addEventListener('mouseenter', () => {
+        simuladorVideo.play().catch(() => {});
+        try {
+          screenSounds.simulador.currentTime = 0;
+          screenSounds.simulador.play().catch(() => {});
+        } catch (e) {}
+      });
+      simuladorVideo.addEventListener('mouseleave', () => {
+        simuladorVideo.pause();
+        simuladorVideo.currentTime = 0;
+        try {
+          screenSounds.simulador.pause();
+          screenSounds.simulador.currentTime = 0;
+        } catch (e) {}
+      });
+      simuladorVideo.addEventListener('click', () => {
+        location.hash = '#simulador';
+        finalizeAction('simulador');
+      });
+      sceneLayer.appendChild(simuladorVideo);
+
+      // Pantalla subacuática (video sobre el monitor)
+      const subacuaVideo = document.createElement('video');
+      subacuaVideo.src = '/game-assets/menu/pantallas/pantalla_subacua.webm';
+      subacuaVideo.loop = true;
+      subacuaVideo.muted = true;
+      subacuaVideo.playsInline = true;
+      // Coords from AE: 992, 374 (Center). Size: 191x150. Base: 1344x768
+      // Left = 992 - 191/2 = 896.5
+      // Top = 374 - 150/2 = 299
+      subacuaVideo.title = 'Misión subacuática';
+      subacuaVideo.style.cssText = `
+        position: absolute;
+        left: 51.7039%;
+        top: 34.9323%;
+        width: 10.2113%;
+        height: 13.5312%;
+        object-fit: fill; 
+        z-index: 10;
+        pointer-events: auto;
+        cursor: pointer;
+      `;
+      
+      subacuaVideo.addEventListener('mouseenter', () => {
+        subacuaVideo.play().catch(() => {});
+        try {
+          screenSounds.subacua.currentTime = 0;
+          screenSounds.subacua.play().catch(() => {});
+        } catch (e) {}
+      });
+      subacuaVideo.addEventListener('mouseleave', () => {
+        subacuaVideo.pause();
+        subacuaVideo.currentTime = 0;
+        try {
+          screenSounds.subacua.pause();
+          screenSounds.subacua.currentTime = 0;
+        } catch (e) {}
+      });
+      subacuaVideo.addEventListener('click', () => {
+        location.hash = '#rio';
+        finalizeAction('subacuatica');
+      });
+
+      sceneLayer.appendChild(subacuaVideo);
+
+      // Empty hotspot below the subacuático screen → wkidoki sound
+      const wkidokiArea = document.createElement('button');
+      wkidokiArea.type = 'button';
+      wkidokiArea.title = '``';
+      wkidokiArea.style.cssText = `
+        position: absolute;
+        left: 51.7039%;
+        top: 50.6%;
+        width: 10.2113%;
+        height: 6%;
+        background: transparent;
+        border: none;
+        z-index: 9;
+        pointer-events: auto;
+        cursor: pointer;
+      `;
+      wkidokiArea.addEventListener('mouseenter', () => {
+        try {
+          screenSounds.wkidoki.currentTime = 0;
+          screenSounds.wkidoki.play().catch(() => {});
+        } catch (e) {}
+      });
+      wkidokiArea.addEventListener('mouseleave', () => {
+        try {
+          screenSounds.wkidoki.pause();
+          screenSounds.wkidoki.currentTime = 0;
+        } catch (e) {}
+      });
+      sceneLayer.appendChild(wkidokiArea);
 
       // Función de limpieza y resolución común
       const finalizeAction = (action) => {
@@ -456,23 +623,7 @@ export class MenuScene extends BaseScene {
       `;
       document.head.appendChild(hotspotStyle);
 
-      const hotspotDefs = [
-        {
-          action: 'recorrido',
-          title: 'Iniciar recorrido',
-          polygon: '21.42% 41.28%, 31.20% 40.10%, 31.63% 55.08%, 22.99% 59.38%',
-        },
-        {
-          action: 'simulador',
-          title: 'Simulador',
-          polygon: '41.90% 34.03%, 50.46% 34.03%, 50.58% 48.83%, 42.20% 49.09%',
-        },
-        {
-          action: 'subacuatica',
-          title: 'Misión subacuática',
-          polygon: '51.99% 34.90%, 59.72% 34.90%, 59.72% 48.44%, 52.24% 48.05%',
-        },
-      ];
+      const hotspotDefs = [];
 
       hotspotDefs.forEach(({ action, title, polygon }) => {
         const area = document.createElement('button');
@@ -494,7 +645,7 @@ export class MenuScene extends BaseScene {
       sceneLayer.appendChild(hotspotLayer);
       
       // Crear wrapper del menú que permitirá escalar el contenido
-      const menuWrapper = document.createElement('div');
+      menuWrapper = document.createElement('div');
       menuWrapper.style.cssText = `
         position: absolute;
         inset: 0;
@@ -506,7 +657,7 @@ export class MenuScene extends BaseScene {
       `;
 
       // Contenedor interno que realmente alberga el menú (este será escalado)
-      const menuContainer = document.createElement('div');
+      menuContainer = document.createElement('div');
       menuContainer.style.cssText = `
         display: flex;
         flex-direction: column;
