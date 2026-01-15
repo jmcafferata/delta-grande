@@ -7,6 +7,7 @@
     <title>DELTA+</title>
     <link rel="stylesheet" href="https://use.typekit.net/tas7aat.css">
     <link rel="stylesheet" href="landing-style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 
 <body class="is-loading is-splat-priority">
@@ -243,14 +244,14 @@
                 <button id="credits-close" class="pwa-button" type="button" aria-label="Cerrar créditos">Cerrar</button>
             </div>
             <div class="credits-body">
-                <p><strong>Delta Grande</strong> — Proyecto interdisciplinario de arte, ciencia y tecnología.</p>
-                <p><strong>Dirección creativa:</strong> Equipo Delta Grande.</p>
-                <p><strong>Desarrollo interactivo:</strong> Equipo Delta Grande.</p>
-                <p><strong>Arte y animación:</strong> Equipo Delta Grande.</p>
-                <p><strong>Investigación y relatos:</strong> Equipo Delta Grande.</p>
-                <p><strong>Música y sonido:</strong> Equipo Delta Grande.</p>
-                <p style="margin-top:12px;">Gracias a todas las comunidades, especialistas y colaboradores que hicieron
-                    posible este recorrido.</p>
+                <canvas id="pdf-canvas"></canvas>
+                <div id="pdf-loading" class="pdf-loading">Cargando PDF...</div>
+                <div id="pdf-error" class="pdf-error" style="display: none;">Error al cargar el PDF</div>
+            </div>
+            <div class="pdf-controls">
+                <button id="pdf-prev" class="pwa-button" type="button" aria-label="Página anterior">← Anterior</button>
+                <span id="pdf-page-info" class="pdf-page-info">Página 1 de 1</span>
+                <button id="pdf-next" class="pwa-button" type="button" aria-label="Página siguiente">Siguiente →</button>
             </div>
         </div>
     </div>

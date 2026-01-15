@@ -1004,8 +1004,8 @@
         }
 
         .credits-panel {
-            width: min(880px, 94vw);
-            max-height: 86vh;
+            width: min(980px, 94vw);
+            max-height: 90vh;
             background: rgba(12, 12, 12, 0.94);
             border: 1px solid rgba(255, 255, 255, 0.16);
             border-radius: 20px;
@@ -1033,15 +1033,60 @@
         }
 
         .credits-body {
-            overflow-y: auto;
-            max-height: 60vh;
-            padding-right: 6px;
-            font-size: 14px;
-            line-height: 1.6;
+            flex: 1;
+            overflow: auto;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            position: relative;
+            min-height: 0;
+            max-height: 75vh;
         }
 
-        .credits-body strong {
+        #pdf-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            display: block;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .pdf-loading, .pdf-error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
             color: #FFE55C;
+            text-align: center;
+        }
+
+        .pdf-error {
+            color: #ff6b6b;
+        }
+
+        .pdf-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding-top: 8px;
+        }
+
+        .pdf-page-info {
+            font-size: 14px;
+            color: #f7f7f7;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .pdf-controls .pwa-button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         /* Video Overlay */

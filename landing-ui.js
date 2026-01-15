@@ -530,12 +530,126 @@ window.enableGlobalAudio = enableGlobalAudio;
 
 if (enableBtn) enableBtn.addEventListener('click', enableGlobalAudio);
 
+// PDF Viewer for Credits
+let pdfDoc = null;
+let pageNum = 1;
+let pageRendering = false;
+let pageNumPending = null;
+
+const canvas = document.getElementById('pdf-canvas');
+const ctx = canvas ? canvas.getContext('2d') : null;
+const pdfLoading = document.getElementById('pdf-loading');
+const pdfError = document.getElementById('pdf-error');
+const pageInfo = document.getElementById('pdf-page-info');
+const prevBtn = document.getElementById('pdf-prev');
+const nextBtn = document.getElementById('pdf-next');
+
+// Configure PDF.js worker
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+function renderPage(num) {
+    if (!pdfDoc || !canvas || !ctx) return;
+    pageRendering = true;
+
+    pdfDoc.getPage(num).then(function(page) {
+        // Get container width - prioritize fitting width for tall PDFs
+        const container = canvas.parentElement;
+        const maxWidth = container ? container.clientWidth - 24 : 800;
+        
+        // Calculate scale to fit width (for vertical/tall PDFs)
+        const viewport = page.getViewport({ scale: 1.0 });
+        const scale = maxWidth / viewport.width;
+        const scaledViewport = page.getViewport({ scale: scale });
+        
+        canvas.height = scaledViewport.height;
+        canvas.width = scaledViewport.width;
+
+        const renderContext = {
+            canvasContext: ctx,
+            viewport: scaledViewport
+        };
+
+        const renderTask = page.render(renderContext);
+        renderTask.promise.then(function() {
+            pageRendering = false;
+            if (pageNumPending !== null) {
+                renderPage(pageNumPending);
+                pageNumPending = null;
+            }
+        });
+    });
+
+    if (pageInfo) pageInfo.textContent = `Página ${num} de ${pdfDoc.numPages}`;
+    if (prevBtn) prevBtn.disabled = (num <= 1);
+    if (nextBtn) nextBtn.disabled = (num >= pdfDoc.numPages);
+}
+
+function queueRenderPage(num) {
+    if (pageRendering) {
+        pageNumPending = num;
+    } else {
+        renderPage(num);
+    }
+}
+
+function onPrevPage() {
+    if (pageNum <= 1) return;
+    pageNum--;
+    queueRenderPage(pageNum);
+}
+
+function onNextPage() {
+    if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
+    pageNum++;
+    queueRenderPage(pageNum);
+}
+
+if (prevBtn) prevBtn.addEventListener('click', onPrevPage);
+if (nextBtn) nextBtn.addEventListener('click', onNextPage);
+
+// Load PDF when opening credits
+function loadPDF() {
+    if (!canvas || !ctx || typeof pdfjsLib === 'undefined') {
+        if (pdfError) {
+            pdfError.textContent = 'El visor de PDF no está disponible';
+            pdfError.style.display = 'block';
+        }
+        if (pdfLoading) pdfLoading.style.display = 'none';
+        return;
+    }
+
+    const url = 'assets/creditos/Creditos Delta_20260114.pdf';
+    
+    if (pdfLoading) pdfLoading.style.display = 'block';
+    if (pdfError) pdfError.style.display = 'none';
+
+    pdfjsLib.getDocument(url).promise.then(function(pdf) {
+        pdfDoc = pdf;
+        if (pdfLoading) pdfLoading.style.display = 'none';
+        renderPage(pageNum);
+    }).catch(function(error) {
+        console.error('Error loading PDF:', error);
+        if (pdfError) {
+            pdfError.textContent = 'Error al cargar el PDF de créditos';
+            pdfError.style.display = 'block';
+        }
+        if (pdfLoading) pdfLoading.style.display = 'none';
+    });
+}
+
 // Credits overlay interactions
 function openCredits() {
     if (!creditsOverlay) return;
     creditsOverlay.classList.add('is-visible');
     creditsOverlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('credits-open');
+    
+    // Load PDF on first open
+    if (!pdfDoc) {
+        loadPDF();
+    }
 }
 
 function closeCredits() {
@@ -554,6 +668,11 @@ if (creditsOverlay) {
 }
 window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeCredits();
+    // Navigate PDF with arrow keys when credits are open
+    if (creditsOverlay && creditsOverlay.classList.contains('is-visible')) {
+        if (ev.key === 'ArrowLeft') onPrevPage();
+        if (ev.key === 'ArrowRight') onNextPage();
+    }
 });
 
 // Handle messages from service worker to update progress UI
