@@ -861,7 +861,11 @@ export class MenuScene extends BaseScene {
     }
 
     // Stop all other sounds (global)
-    AudioManager.stopAll();
+    if (AudioManager?.stopAll) {
+      AudioManager.stopAll();
+    } else {
+      console.warn('[MenuScene] AudioManager.stopAll not available. Skipping global stop.');
+    }
     
     // Restaurar canvas
     this.app.canvas.style.display = '';

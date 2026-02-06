@@ -3489,6 +3489,10 @@ class FactOverlay {
 export class RioScene extends BaseScene {
   constructor(app) {
     super(app);
+    // Fix iOS/Water clipping issues near surface
+    this.camera.near = 0.01;
+    this.camera.updateProjectionMatrix();
+
     this.name = 'rio';
 
     // Deep clone DEFAULT_PARAMS so runtime edits won’t mutate the constant.
@@ -4509,9 +4513,10 @@ export class RioScene extends BaseScene {
         colorWrite: false,    // <- NO escribe color
         depthWrite: true,     // <- SÍ escribe z
         depthTest: true,
-        polygonOffset: true,
-        polygonOffsetFactor: 2,
-        polygonOffsetUnits: 2,
+        // Removed polygonOffset to avoid potential iOS issues and Z-fighting artifacts
+        // polygonOffset: true,
+        // polygonOffsetFactor: 2,
+        // polygonOffsetUnits: 2,
         side: THREE.FrontSide
       });
       this.waterOccluder = new THREE.Mesh(occGeo, occMat);
@@ -4530,7 +4535,8 @@ export class RioScene extends BaseScene {
     // is just a few centimeters under the surface.
     // This avoids the “gray band” that appears when the camera is between the
     // surface and an occluder placed below it.
-    this.waterOccluder.position.set(100, yTop + 0.05, 0); // Increased gap for iOS z-fighting
+    // Increased offset to 0.1 to avoid Z-fighting with waterSurfaceBottom on iOS
+    this.waterOccluder.position.set(100, yTop + 0.1, 0);
     this.waterOccluder.scale.set(sx, sz, 1);
 
     // Superficie visible (opcional, solo cara superior, sin “segunda tapa”)
@@ -4580,7 +4586,8 @@ export class RioScene extends BaseScene {
     // Keep the underside surface very close to the surface so that when the
     // camera is slightly below the surface it still sees a valid surface
     // instead of the clear/fogged background.
-    this.waterSurfaceBottom.position.set(100, yTop - 0.04, 0); // Increased gap for iOS z-fighting
+    // Moved to +0.05 to ensure it is not clipped by 'near' plane (0.01) when camera is at surfaceLevel
+    this.waterSurfaceBottom.position.set(100, yTop + 0.05, 0);
     this.waterSurfaceBottom.scale.set(sx, 1, sz);
 
   }
@@ -6130,24 +6137,32 @@ export class RioScene extends BaseScene {
       pointer-events: none;
     `;
 
-    const exterior = new Image();
-    exterior.src = '/game-assets/menu/laboratorio_exterior.webp';
-    exterior.style.cssText = `
+    const exteriorVideo = document.createElement('video');
+    exteriorVideo.src = '/game-assets/menu/laboratorio_exterior.mp4';
+    exteriorVideo.poster = '/game-assets/menu/laboratorio_exterior.webp';
+    exteriorVideo.preload = 'auto';
+    exteriorVideo.muted = true;
+    exteriorVideo.playsInline = true;
+    exteriorVideo.loop = true;
+    exteriorVideo.style.cssText = `
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
       opacity: 1;
+      pointer-events: none;
     `;
+    exteriorVideo.setAttribute('playsinline', '');
+    exteriorVideo.setAttribute('muted', '');
 
     const loader = document.createElement('video');
     loader.src = '/game-assets/menu/loader_yellow.webm';
     loader.style.cssText = `
       position: absolute;
-      right: clamp(16px, 3vw, 64px);
-      bottom: clamp(16px, 3vw, 64px);
-      width: clamp(100px, 15vw, 260px);
+      right: clamp(32px, 5vw, 80px);
+      bottom: clamp(32px, 5vw, 80px);
+      width: clamp(50px, 6vw, 100px);
       max-height: 50%;
       object-fit: contain;
       opacity: 1;
@@ -6156,6 +6171,13 @@ export class RioScene extends BaseScene {
     loader.muted = true;
     loader.playsInline = true;
     loader.loop = true;
+
+    const erLogo = document.createElement('div');
+    erLogo.className = 'er-logo';
+    erLogo.style.cssText = 'position: absolute; top: 16px; left: 16px; z-index: 2000; pointer-events: none; padding: 8px 12px;';
+    erLogo.innerHTML = '<img src="/assets/LOGO_ER_horizontal.png" alt="ER" style="height: clamp(12px, 2.4vw, 28px); width: auto; display: block; filter: brightness(0); opacity: 0.8;" />';
+
+    this._loadingTextEl = null;
 
     // Progress Bar Container
     const barContainer = document.createElement('div');
@@ -6196,7 +6218,8 @@ export class RioScene extends BaseScene {
 
     barContainer.appendChild(bar);
 
-    wrap.appendChild(exterior);
+    wrap.appendChild(exteriorVideo);
+    wrap.appendChild(erLogo);
     wrap.appendChild(loader);
     wrap.appendChild(barContainer);
     document.body.appendChild(wrap);
@@ -6204,6 +6227,18 @@ export class RioScene extends BaseScene {
     this._loadingEl = wrap;
 
     // Start video playback
+    const tryStartBackgroundVideo = () => {
+      if (exteriorVideo.readyState < 2) return;
+      exteriorVideo.play().catch(() => {});
+    };
+
+    if (exteriorVideo.readyState >= 2) {
+      tryStartBackgroundVideo();
+    } else {
+      exteriorVideo.addEventListener('canplay', tryStartBackgroundVideo, { once: true });
+      exteriorVideo.addEventListener('loadeddata', tryStartBackgroundVideo, { once: true });
+    }
+
     if (loader.readyState >= 1) {
       loader.play().catch(() => {});
     } else {
@@ -6215,7 +6250,7 @@ export class RioScene extends BaseScene {
 
   _setLoadingText(message) {
     if (!this._loadingTextEl) return;
-    this._loadingTextEl.textContent = message || 'Cargando...';
+    this._loadingTextEl.textContent = 'Cargando...';
   }
 
   _updateLoadingBar() {
@@ -7305,6 +7340,14 @@ export class RioScene extends BaseScene {
   /* ----------------------------------- Update ----------------------------------- */
 
   update(dt) {
+    // --- Consistency check for water planes vs camera Y ---
+    // If above water, hide the underwater-facing planes to avoid "water ceiling" artifacts.
+    if (this.waterOccluder && this.waterSurfaceBottom) {
+      const isAbove = (this.camera.position.y > this.params.surfaceLevel);
+      this.waterOccluder.visible = !isAbove;
+      this.waterSurfaceBottom.visible = !isAbove;
+    }
+
     const { deadzone, damping, speeds, responseCurve } = this.params;
     const nowSec = performance.now() * 0.001;
 
