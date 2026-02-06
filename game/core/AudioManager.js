@@ -125,5 +125,20 @@ export const AudioManager = {
   setVolume(name, volume) {
     const a = this.audios[name];
     if (a) a.volume = volume;
+  },
+
+  stopAll() {
+    Object.keys(this.audios).forEach(name => {
+      this.stop(name);
+    });
+
+    if (this._bufferNodes) {
+      Object.values(this._bufferNodes).forEach(node => {
+        try {
+          if (node && node.srcNode) node.srcNode.stop();
+        } catch (e) { }
+      });
+      this._bufferNodes = {};
+    }
   }
 };
