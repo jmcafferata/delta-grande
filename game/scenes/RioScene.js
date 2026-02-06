@@ -41,8 +41,8 @@ import {
  * What’s new / key guarantees
  * ---------------------------
  * • A single, explicit set of world-space parameters drives *everything*:
- *   - surfaceLevel  : y of the water surface plane, fog toggle, swimbox Y max,
- *                     and camera Y max (via cameraSurfaceMargin).
+ *   - surfaceLevel  : y of the water surface plane, fog toggle, swimbox Y max
+ *                     (minus fishSurfaceMargin), and camera Y max (via cameraSurfaceMargin).
  *   - floorLevel    : y of the riverbed; also camera Y min and swimbox Y min.
  *   - shoreLevel    : x of the shoreline; also swimbox X min.
  *   - cameraLevel   : camera’s current x (distance from shore); also swimbox X max.
@@ -617,6 +617,9 @@ const DEFAULT_PARAMS = {
   shoreLevel:  50.0,     // x of shoreline (swimbox min X)
   leftLimit:   -60.0,    // z min for both camera and swimbox
   rightLimit:   60.0,    // z max for both camera and swimbox
+
+  /** Fish swim limits */
+  fishSurfaceMargin: 0.6, // keep fish this many meters below surfaceLevel
 
   /** Camera constraints aligned to world limits */
   cameraSurfaceMargin: 0.3,   // how much camera may go above surfaceLevel
@@ -6743,6 +6746,11 @@ export class RioScene extends BaseScene {
    */
   initSwimBoxFromParams() {
     const maxX = (this.params.swimBoxMaxX ?? this.params.start.x);
+    const fishSurfaceMargin = Math.max(0, this.params.fishSurfaceMargin ?? 0);
+    const maxY = Math.max(
+      this.params.floorLevel + 0.001,
+      this.params.surfaceLevel - fishSurfaceMargin
+    );
     this.swimBox.min.set(
       this.params.shoreLevel,
       this.params.floorLevel,
@@ -6750,7 +6758,7 @@ export class RioScene extends BaseScene {
     );
     this.swimBox.max.set(
       Math.max(this.params.shoreLevel + 0.001, maxX),
-      Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel),
+      maxY,
       this.params.rightLimit
     );
   }
@@ -6761,6 +6769,11 @@ export class RioScene extends BaseScene {
    */
   updateSwimBoxDynamic() {
     const maxX = (this.params.swimBoxMaxX ?? this.params.start.x);
+    const fishSurfaceMargin = Math.max(0, this.params.fishSurfaceMargin ?? 0);
+    const maxY = Math.max(
+      this.params.floorLevel + 0.001,
+      this.params.surfaceLevel - fishSurfaceMargin
+    );
 
     // X stays frozen
     this.swimBox.min.x = this.params.shoreLevel;
@@ -6768,7 +6781,7 @@ export class RioScene extends BaseScene {
 
     // Y, Z reflect explicit params (in case you tweak them live)
     this.swimBox.min.y = this.params.floorLevel;
-    this.swimBox.max.y = Math.max(this.params.floorLevel + 0.001, this.params.surfaceLevel);
+    this.swimBox.max.y = maxY;
 
     this.swimBox.min.z = this.params.leftLimit;
     this.swimBox.max.z = this.params.rightLimit;
