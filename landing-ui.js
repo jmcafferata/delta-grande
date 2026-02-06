@@ -3247,6 +3247,21 @@ const WELCOME_THEME = {
             let deferredPrompt = null;
             const installBtn = document.getElementById('pwaInstallBtn');
             const saveBtn = document.getElementById('pwaSaveBtn');
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            const fullscreenTarget = document.documentElement;
+            const supportsFullscreen = !!(
+                fullscreenBtn &&
+                fullscreenTarget &&
+                fullscreenTarget.requestFullscreen &&
+                document.fullscreenEnabled
+            );
+
+            const updateFullscreenButton = () => {
+                if (!fullscreenBtn) return;
+                const isFullscreen = !!document.fullscreenElement;
+                fullscreenBtn.textContent = isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa';
+                fullscreenBtn.setAttribute('aria-pressed', isFullscreen ? 'true' : 'false');
+            };
 
             // Listen for the beforeinstallprompt event
             window.addEventListener('beforeinstallprompt', (e) => {
@@ -3304,6 +3319,41 @@ const WELCOME_THEME = {
                         alert('No se pudo iniciar el guardado offline.');
                     }
                 });
+            }
+
+            if (fullscreenBtn) {
+                if (!supportsFullscreen) {
+                    fullscreenBtn.hidden = true;
+                } else {
+                    updateFullscreenButton();
+                    fullscreenBtn.addEventListener('click', async () => {
+                        if (!document.fullscreenElement) {
+                            try {
+                                if (fullscreenTarget.requestFullscreen.length === 1) {
+                                    await fullscreenTarget.requestFullscreen({ navigationUI: 'hide' });
+                                } else {
+                                    await fullscreenTarget.requestFullscreen();
+                                }
+                                if (screen.orientation && screen.orientation.lock) {
+                                    try {
+                                        await screen.orientation.lock('landscape');
+                                    } catch (err) {
+                                        // Ignore orientation lock failures.
+                                    }
+                                }
+                            } catch (err) {
+                                console.warn('Fullscreen request failed:', err);
+                            }
+                        } else if (document.exitFullscreen) {
+                            try {
+                                await document.exitFullscreen();
+                            } catch (err) {
+                                console.warn('Exit fullscreen failed:', err);
+                            }
+                        }
+                    });
+                    document.addEventListener('fullscreenchange', updateFullscreenButton);
+                }
             }
 
             // When the app is installed, hide install button
