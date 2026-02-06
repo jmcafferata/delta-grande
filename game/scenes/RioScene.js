@@ -4530,7 +4530,7 @@ export class RioScene extends BaseScene {
     // is just a few centimeters under the surface.
     // This avoids the “gray band” that appears when the camera is between the
     // surface and an occluder placed below it.
-    this.waterOccluder.position.set(100, yTop + 0.02, 0);
+    this.waterOccluder.position.set(100, yTop + 0.05, 0); // Increased gap for iOS z-fighting
     this.waterOccluder.scale.set(sx, sz, 1);
 
     // Superficie visible (opcional, solo cara superior, sin “segunda tapa”)
@@ -4580,7 +4580,7 @@ export class RioScene extends BaseScene {
     // Keep the underside surface very close to the surface so that when the
     // camera is slightly below the surface it still sees a valid surface
     // instead of the clear/fogged background.
-    this.waterSurfaceBottom.position.set(100, yTop - 0.01, 0);
+    this.waterSurfaceBottom.position.set(100, yTop - 0.04, 0); // Increased gap for iOS z-fighting
     this.waterSurfaceBottom.scale.set(sx, 1, sz);
 
   }

@@ -10,6 +10,7 @@ import { CursorRadarModule } from './CursorRadarModule.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GamerLUTPass } from '../core/GamerLUTPass.js';
+import { getVideoSource } from '../core/VideoSupport.js';
 
 // 👇 Control the starting scene here (0=escena01, 1=escena02, 2=escena03, etc.)
 // Ronda 1, Ambiente 1 = escena 0
@@ -1870,7 +1871,10 @@ export class RecorridoScene extends BaseScene {
                   }
 
                   this.videoElement = document.createElement('video');
-                  this.videoElement.src = speciesData.assets.glitchVideo;
+                  const glitchSrc = getVideoSource(speciesData.assets.glitchVideo, {
+                    fallback: speciesData.assets.glitchVideoFallback || null
+                  });
+                  this.videoElement.src = glitchSrc || speciesData.assets.glitchVideo;
                   this.videoElement.crossOrigin = 'anonymous';
                   this.videoElement.loop = true;
                   this.videoElement.muted = true;
@@ -2421,6 +2425,9 @@ export class RecorridoScene extends BaseScene {
 
     // 📺 Precargar video de data de la especie para evitar lag al hacer click
     if (this.currentSpecies?.assets?.dataVideo) {
+      const dataVideoSrc = getVideoSource(this.currentSpecies.assets.dataVideo, {
+        fallback: this.currentSpecies.assets.dataVideoFallback || null
+      });
       // Limpiar video anterior si existe
       if (this.preloadedDataVideo) {
         try {
@@ -2439,7 +2446,7 @@ export class RecorridoScene extends BaseScene {
         // Create element and capture it in a local const to avoid races with
         // subsequent calls that may replace `this.preloadedDataVideo`.
         const v = document.createElement('video');
-        v.src = this.currentSpecies.assets.dataVideo;
+        v.src = dataVideoSrc || this.currentSpecies.assets.dataVideo;
         v.muted = true; // Muted para permitir precarga sin interacción del usuario
         v.preload = 'metadata'; // Cambiar a 'metadata' en lugar de 'auto' para cargar menos datos
         v.playsInline = true;
@@ -3775,6 +3782,10 @@ export class RecorridoScene extends BaseScene {
       const videoEl = document.getElementById('speciesDataVideo');
       const videoOverlay = document.getElementById('videoOverlay');
 
+      const dataVideoSrc = getVideoSource(this.currentSpecies.assets.dataVideo, {
+        fallback: this.currentSpecies.assets.dataVideoFallback || null
+      });
+
       // 👇 OPTIMIZACIÓN: Usar directamente el video precargado sin crear nuevo src
       if (this.preloadedDataVideo && this.preloadedDataVideo.readyState >= 2) {
         // Si el video precargado está listo, transferir su src (ya está en cache del browser)
@@ -3784,7 +3795,7 @@ export class RecorridoScene extends BaseScene {
         videoEl.src = this.preloadedDataVideo.src;
       } else {
         // Fallback: cargar ahora (no debería pasar si la precarga funciona)
-        videoEl.src = this.currentSpecies.assets.dataVideo;
+        videoEl.src = dataVideoSrc || this.currentSpecies.assets.dataVideo;
       }
 
       videoEl.controls = false;

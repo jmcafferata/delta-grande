@@ -7,6 +7,97 @@
     <title>DELTA+</title>
     <link rel="stylesheet" href="https://use.typekit.net/tas7aat.css">
     <link rel="stylesheet" href="landing-style.css">
+    <script>
+        (function () {
+            var url = new URL(window.location.href);
+            if (!url.searchParams.has("reset")) {
+                return;
+            }
+
+            var overlay = document.createElement("div");
+            overlay.setAttribute("role", "status");
+            overlay.setAttribute("aria-live", "polite");
+            overlay.style.position = "fixed";
+            overlay.style.inset = "0";
+            overlay.style.background = "rgba(0, 0, 0, 0.85)";
+            overlay.style.color = "#ffffff";
+            overlay.style.display = "flex";
+            overlay.style.alignItems = "center";
+            overlay.style.justifyContent = "center";
+            overlay.style.textAlign = "center";
+            overlay.style.font = "600 16px/1.4 sans-serif";
+            overlay.style.letterSpacing = "0.04em";
+            overlay.style.zIndex = "99999";
+            overlay.textContent = "Reiniciando datos...";
+            document.documentElement.appendChild(overlay);
+
+            var cleanupTasks = [];
+
+            try {
+                localStorage.clear();
+            } catch (err) {
+                // Ignore storage errors in restricted modes.
+            }
+
+            try {
+                sessionStorage.clear();
+            } catch (err) {
+                // Ignore storage errors in restricted modes.
+            }
+
+            if ("caches" in window) {
+                cleanupTasks.push(
+                    caches.keys().then(function (keys) {
+                        return Promise.all(keys.map(function (key) {
+                            return caches.delete(key);
+                        }));
+                    })
+                );
+            }
+
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                cleanupTasks.push(
+                    navigator.serviceWorker.getRegistrations().then(function (regs) {
+                        return Promise.all(regs.map(function (reg) {
+                            return reg.unregister();
+                        }));
+                    })
+                );
+            }
+
+            if ("indexedDB" in window && indexedDB.databases) {
+                cleanupTasks.push(
+                    indexedDB.databases().then(function (dbs) {
+                        return Promise.all(
+                            dbs.map(function (db) {
+                                if (!db || !db.name) {
+                                    return Promise.resolve();
+                                }
+                                return new Promise(function (resolve) {
+                                    var request = indexedDB.deleteDatabase(db.name);
+                                    request.onsuccess = resolve;
+                                    request.onerror = resolve;
+                                    request.onblocked = resolve;
+                                });
+                            })
+                        );
+                    })
+                );
+            }
+
+            var cookies = document.cookie ? document.cookie.split(";") : [];
+            cookies.forEach(function (cookie) {
+                var eqPos = cookie.indexOf("=");
+                var name = eqPos > -1 ? cookie.slice(0, eqPos) : cookie;
+                document.cookie = name.trim() + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+            });
+
+            Promise.allSettled(cleanupTasks).finally(function () {
+                url.searchParams.delete("reset");
+                window.location.replace(url.toString());
+            });
+        })();
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 

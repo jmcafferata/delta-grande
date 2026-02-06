@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BaseScene } from '../core/BaseScene.js';
 import { State } from '../core/State.js';
 import { Save } from '../core/Save.js';
+import { AudioManager } from '../core/AudioManager.js';
 
 export class MenuScene extends BaseScene {
   constructor(app) {
@@ -99,6 +100,26 @@ export class MenuScene extends BaseScene {
     `;
     document.body.appendChild(overlay);
 
+    // ER Logo persistent in Menu Scene
+    const erLogo = document.createElement('div');
+    erLogo.className = 'er-logo';
+    erLogo.style.cssText = `
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 2000;
+        pointer-events: none;
+        padding: 8px 12px;
+    `;
+    erLogo.innerHTML = `<img src="/assets/LOGO_ER_horizontal.png" alt="ER" style="
+        height: clamp(12px, 2.4vw, 28px);
+        width: auto;
+        display: block;
+        filter: brightness(0); 
+        opacity: 0.8;
+    " />`;
+    overlay.appendChild(erLogo);
+
     // Colocar la barra de progreso dentro del overlay del menú para controlar la pila
     this._progressOverlay = window.progressManager?.overlay || null;
     this._progressOverlayParent = this._progressOverlay?.parentElement || null;
@@ -128,6 +149,14 @@ export class MenuScene extends BaseScene {
 
     // Mostrar loader de laboratorio
     await this.playLoaderSequence(overlay);
+
+    // Revert logo filter (make it white) now that we are inside the dark lab
+    const logoImg = erLogo.querySelector('img');
+    if (logoImg) {
+        logoImg.style.transition = 'filter 1s ease, opacity 1s ease';
+        logoImg.style.filter = 'brightness(0) invert(1)';
+        logoImg.style.opacity = '0.5';
+    }
 
     // Fade in progress overlay after loading screen completes
     if (window.progressManager) {
@@ -213,10 +242,10 @@ export class MenuScene extends BaseScene {
       loader.src = '/game-assets/menu/loader_yellow.webm';
       loader.style.cssText = `
         position: absolute;
-        right: clamp(16px, 3vw, 64px);
-        bottom: clamp(16px, 3vw, 64px);
-          width: clamp(100px, 15vw, 260px);
-          max-height: 50%;
+        right: clamp(32px, 5vw, 80px);
+        bottom: clamp(32px, 5vw, 80px);
+        width: clamp(50px, 6vw, 100px);
+        max-height: 50%;
         object-fit: contain;
         opacity: 1;
         pointer-events: none;
@@ -373,12 +402,15 @@ export class MenuScene extends BaseScene {
       const BASE_IMG_W = 1344;
       const BASE_IMG_H = 768;
       // Hover sounds for each screen + wkidoki
-      const screenSounds = {
+      this.screenSounds = {
         recorrido: new Audio('/game-assets/menu/sonidos/Pantalla_recorrido.mp3'),
         simulador: new Audio('/game-assets/menu/sonidos/Pantalla_simulador.mp3'),
         subacua: new Audio('/game-assets/menu/sonidos/Pantalla_subacuatico.mp3'),
         wkidoki: new Audio('/game-assets/menu/sonidos/Pamela_wokidoki.mp3'),
       };
+      // Keep local reference for existing code
+      const screenSounds = this.screenSounds;
+
       try {
         Object.values(screenSounds).forEach(a => {
           a.volume = 0.9;
@@ -838,6 +870,20 @@ export class MenuScene extends BaseScene {
       this.ambientAudio.currentTime = 0;
       this.ambientAudio = null;
     }
+
+    // Stop local screen sounds
+    if (this.screenSounds) {
+      Object.values(this.screenSounds).forEach(a => {
+        if (a) {
+          a.pause();
+          try { a.currentTime = 0; } catch (e) {}
+        }
+      });
+      this.screenSounds = null;
+    }
+
+    // Stop all other sounds (global)
+    AudioManager.stopAll();
     
     // Restaurar canvas
     this.app.canvas.style.display = '';
