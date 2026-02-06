@@ -448,11 +448,18 @@ export class RecorridoTransitionScene extends BaseScene {
 
         this._activeVideos.delete(video);
 
+        // If skipped, force immediate cleanup without delay
+        const cleanupDelay = isSkipped() ? 0 : 1000;
+        
+        if (isSkipped() && textOverlay) {
+          textOverlay.style.display = 'none';
+        }
+
         this._trackTimeout(() => {
           if (video.parentNode) video.parentNode.removeChild(video);
           if (textOverlay && textOverlay.parentNode) textOverlay.parentNode.removeChild(textOverlay);
           resolve();
-        }, 1000); // Esperar a que termine el fade out
+        }, cleanupDelay); // Esperar a que termine el fade out
       };
 
       // Monitorear el video para iniciar fade out 1 segundo antes del final
