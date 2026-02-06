@@ -68,6 +68,14 @@ import {
  * ------------------------------------------------------------- */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp  = (a, b, t) => a + (b - a) * t;
+const isMacChrome = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const isMac = /Mac/.test(platform) || /Macintosh|Mac OS X/.test(ua);
+  const isChrome = /Chrome\/\d+/.test(ua) && !/Edg\/|OPR\/|Brave\//.test(ua);
+  return isMac && isChrome;
+};
 
 // Standard normal noise (Box–Muller). mean=0, sigma=1
 const randn = () => {
@@ -3489,6 +3497,8 @@ class FactOverlay {
 export class RioScene extends BaseScene {
   constructor(app) {
     super(app);
+    this._isMacChrome = isMacChrome();
+    this._waterUnderPrev = undefined;
     // Fix iOS/Water clipping issues near surface
     this.camera.near = 0.01;
     this.camera.updateProjectionMatrix();
@@ -4027,10 +4037,9 @@ export class RioScene extends BaseScene {
     }
 
 
-    // When the camera gets very close to the water plane, a near clip of 0.1
-    // can clip the surface itself, revealing the underwater scene or causing
-    // the depth-only occluder to “punch a hole” (gray).
-    this.camera.near = 0.0002;
+    // Keep near reasonably small for surface transitions, but not tiny enough
+    // to destroy depth precision on large water planes.
+    this.camera.near = this._isMacChrome ? 0.03 : 0.01;
     this.camera.far  = 90;   // try 80–150; lower = faster
     this.camera.updateProjectionMatrix();
 
@@ -4536,7 +4545,7 @@ export class RioScene extends BaseScene {
     // This avoids the “gray band” that appears when the camera is between the
     // surface and an occluder placed below it.
     // Increased offset to 0.1 to avoid Z-fighting with waterSurfaceBottom on iOS
-    this.waterOccluder.position.set(100, yTop + 0.1, 0);
+    this.waterOccluder.position.set(100, yTop + (this._isMacChrome ? 0.14 : 0.1), 0);
     this.waterOccluder.scale.set(sx, sz, 1);
 
     // Superficie visible (opcional, solo cara superior, sin “segunda tapa”)
@@ -4547,7 +4556,7 @@ export class RioScene extends BaseScene {
         transparent: false,
         roughness: 0.9, metalness: 0.0,
         side: THREE.FrontSide, // solo desde arriba
-        polygonOffset: true,
+        polygonOffset: !this._isMacChrome,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
         depthWrite: true, depthTest: true,
@@ -4572,7 +4581,7 @@ export class RioScene extends BaseScene {
         emissiveIntensity: 0.4,
         transparent: false, // Opaque to avoid seeing the occluder/void behind it
         side: THREE.FrontSide, // facing down
-        polygonOffset: true,
+        polygonOffset: !this._isMacChrome,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -2,
         depthWrite: true,
@@ -4587,7 +4596,7 @@ export class RioScene extends BaseScene {
     // camera is slightly below the surface it still sees a valid surface
     // instead of the clear/fogged background.
     // Moved to +0.05 to ensure it is not clipped by 'near' plane (0.01) when camera is at surfaceLevel
-    this.waterSurfaceBottom.position.set(100, yTop + 0.05, 0);
+    this.waterSurfaceBottom.position.set(100, yTop + (this._isMacChrome ? 0.03 : 0.05), 0);
     this.waterSurfaceBottom.scale.set(sx, 1, sz);
 
   }
@@ -7343,9 +7352,10 @@ export class RioScene extends BaseScene {
     // --- Consistency check for water planes vs camera Y ---
     // If above water, hide the underwater-facing planes to avoid "water ceiling" artifacts.
     if (this.waterOccluder && this.waterSurfaceBottom) {
-      const isAbove = (this.camera.position.y > this.params.surfaceLevel);
-      this.waterOccluder.visible = !isAbove;
-      this.waterSurfaceBottom.visible = !isAbove;
+      const isUnder = this.isUnderwaterVisualStable();
+      this.waterOccluder.visible = isUnder;
+      this.waterSurfaceBottom.visible = isUnder;
+      if (this.waterSurface) this.waterSurface.visible = !isUnder;
     }
 
     const { deadzone, damping, speeds, responseCurve } = this.params;
@@ -7881,6 +7891,23 @@ export class RioScene extends BaseScene {
     }
     // sin estado previo, decisión directa sin margen
     return y < s;
+  }
+
+  isUnderwaterVisualStable() {
+    const y = this.camera.position.y;
+    const s = this.params.surfaceLevel;
+    const base = this.params.aboveFog?.surfaceHysteresis ?? this.params.audio.surfaceHysteresis ?? 0;
+    const eps = this._isMacChrome ? Math.max(base, 0.05) : base;
+    let isUnder;
+    if (this._waterUnderPrev === true) {
+      isUnder = y < (s + eps);
+    } else if (this._waterUnderPrev === false) {
+      isUnder = y < (s - eps);
+    } else {
+      isUnder = y < s;
+    }
+    this._waterUnderPrev = isUnder;
+    return isUnder;
   }
 
 
