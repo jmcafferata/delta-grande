@@ -103,21 +103,8 @@ export class MenuScene extends BaseScene {
     // ER Logo persistent in Menu Scene
     const erLogo = document.createElement('div');
     erLogo.className = 'er-logo';
-    erLogo.style.cssText = `
-        position: absolute;
-        top: 16px;
-        left: 16px;
-        z-index: 2000;
-        pointer-events: none;
-        padding: 8px 12px;
-    `;
-    erLogo.innerHTML = `<img src="/assets/LOGO_ER_horizontal.png" alt="ER" style="
-        height: clamp(12px, 2.4vw, 28px);
-        width: auto;
-        display: block;
-        filter: brightness(0); 
-        opacity: 0.8;
-    " />`;
+    erLogo.style.cssText = 'position: absolute; top: 16px; left: 16px; z-index: 2000; pointer-events: none; padding: 8px 12px;';
+    erLogo.innerHTML = '<img src="/assets/LOGO_ER_horizontal.png" alt="ER" style="height: clamp(12px, 2.4vw, 28px); width: auto; display: block; filter: brightness(0); opacity: 0.8;" />';
     overlay.appendChild(erLogo);
 
     // Colocar la barra de progreso dentro del overlay del menú para controlar la pila
@@ -240,16 +227,7 @@ export class MenuScene extends BaseScene {
 
       const loader = document.createElement('video');
       loader.src = '/game-assets/menu/loader_yellow.webm';
-      loader.style.cssText = `
-        position: absolute;
-        right: clamp(32px, 5vw, 80px);
-        bottom: clamp(32px, 5vw, 80px);
-        width: clamp(50px, 6vw, 100px);
-        max-height: 50%;
-        object-fit: contain;
-        opacity: 1;
-        pointer-events: none;
-      `;
+      loader.style.cssText = 'position: absolute; right: clamp(32px, 5vw, 80px); bottom: clamp(32px, 5vw, 80px); width: clamp(50px, 6vw, 100px); max-height: 50%; object-fit: contain; opacity: 1; pointer-events: none;';
       loader.muted = true;
       loader.playsInline = true;
       loader.loop = false;
