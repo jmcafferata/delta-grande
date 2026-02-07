@@ -3315,9 +3315,9 @@ export class SimuladorScene extends BaseScene {
       pointer-events: none;
     `;
 
-    const loader = document.createElement('video');
-    loader.src = '/game-assets/menu/loader_yellow.webm';
-    loader.style.cssText = `
+    // PNG Sequence Loader (using light png sequence)
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = `
       position: absolute;
       top: 50%;
       left: 50%;
@@ -3330,24 +3330,62 @@ export class SimuladorScene extends BaseScene {
       pointer-events: none;
       background: transparent;
     `;
-    loader.muted = true;
-    loader.playsInline = true;
-    loader.loop = true;
-    loader.autoplay = true;
-    loader.preload = 'auto';
+    const ctx = canvas.getContext('2d');
 
-    overlay.appendChild(loader);
+    overlay.appendChild(canvas);
     this.app.root.appendChild(overlay);
     this._loadingOverlay = overlay;
 
-    // Start video playback
-    if (loader.readyState >= 1) {
-      loader.play().catch(() => {});
-    } else {
-      loader.addEventListener('loadedmetadata', () => {
-        loader.play().catch(() => {});
-      }, { once: true });
+    // Loader Sequence Logic
+    const totalFrames = 96;
+    const startFrame = 0;
+    const fps = 25; 
+    const interval = 1000 / fps;
+    
+    // Preload images
+    const images = [];
+    for (let i = 0; i < totalFrames; i++) {
+        images[i] = new Image();
+        images[i].src = `/game-assets/menu/loader_sequence/loader_${String(startFrame + i).padStart(5, '0')}.png`;
     }
+
+    let frameIndex = 0;
+    let lastTime = 0;
+    let animationFrameId;
+    let isRunning = true;
+
+    const animate = (time) => {
+      if (!isRunning) return;
+      if (!lastTime) lastTime = time;
+      const delta = time - lastTime;
+      
+      if (delta > interval) {
+        lastTime = time - (delta % interval);
+        
+        // Loop the sequence
+        if (frameIndex >= totalFrames) frameIndex = 0;
+
+        const img = images[frameIndex];
+        if (img.complete && img.naturalWidth > 0) {
+           if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+               canvas.width = img.naturalWidth;
+               canvas.height = img.naturalHeight;
+           }
+           ctx.clearRect(0, 0, canvas.width, canvas.height);
+           ctx.drawImage(img, 0, 0);
+           frameIndex++;
+        }
+      }
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    this._stopLoaderAnimation = () => {
+        isRunning = false;
+        cancelAnimationFrame(animationFrameId);
+        this._stopLoaderAnimation = null;
+    };
+
+    requestAnimationFrame(animate);
   }
 
   _hideLoadingOverlay(immediate = false) {
@@ -3355,6 +3393,10 @@ export class SimuladorScene extends BaseScene {
     if (this._loadingOverlayHideTimer) {
       clearTimeout(this._loadingOverlayHideTimer);
       this._loadingOverlayHideTimer = null;
+    }
+
+    if (this._stopLoaderAnimation) {
+        this._stopLoaderAnimation();
     }
 
     const overlay = this._loadingOverlay;

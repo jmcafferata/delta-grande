@@ -225,15 +225,13 @@ export class MenuScene extends BaseScene {
       exteriorVideo.setAttribute('playsinline', '');
       exteriorVideo.setAttribute('muted', '');
 
-      const loader = document.createElement('video');
-      loader.src = '/game-assets/menu/loader_yellow.webm';
-      loader.style.cssText = 'position: absolute; right: clamp(32px, 5vw, 80px); bottom: clamp(32px, 5vw, 80px); width: clamp(50px, 6vw, 100px); max-height: 50%; object-fit: contain; opacity: 1; pointer-events: none;';
-      loader.muted = true;
-      loader.playsInline = true;
-      loader.loop = false;
-
+      // PNG Sequence Loader (using very light png sequence)
+      const canvas = document.createElement('canvas');
+      canvas.style.cssText = 'position: absolute; right: clamp(32px, 5vw, 80px); bottom: clamp(32px, 5vw, 80px); width: clamp(75px, 9vw, 150px); height: auto; object-fit: contain; opacity: 1; pointer-events: none;';
+      const ctx = canvas.getContext('2d');
+      
       container.appendChild(exteriorVideo);
-      container.appendChild(loader);
+      container.appendChild(canvas);
       overlay.appendChild(container);
 
       // Intentar reproducir apenas el video pueda hacerlo (el poster cubre mientras carga).
@@ -252,33 +250,69 @@ export class MenuScene extends BaseScene {
         exteriorVideo.addEventListener('loadeddata', tryStartBackgroundVideo, { once: true });
       }
 
-      let playbackStarted = false;
-      const startPlayback = () => {
-        if (playbackStarted) return;
-        playbackStarted = true;
-        const duration = loader.duration || 0;
-        loader.playbackRate = duration > 0 ? duration / 5 : 1;
-        loader.currentTime = 0;
-        loader.play().catch(() => {});
+      // Sequence Logic
+      const totalFrames = 96;
+      const startFrame = 0;
+      const fps = 25; 
+      const interval = 1000 / fps;
+      
+      // Preload images
+      const images = [];
+      for (let i = 0; i < totalFrames; i++) {
+        images[i] = new Image();
+        images[i].src = `/game-assets/menu/loader_sequence/loader_${String(startFrame + i).padStart(5, '0')}.png`;
+      }
 
-        setTimeout(() => {
+      let frameIndex = 0;
+      let lastTime = 0;
+      let animationFrameId;
+      let finished = false;
+
+      const finishCtx = () => {
+          if (finished) return;
+          finished = true;
+          cancelAnimationFrame(animationFrameId);
+
           container.style.transition = 'opacity 0.8s ease';
           container.style.opacity = '0';
           setTimeout(() => {
-            loader.pause();
             try { exteriorVideo.pause(); } catch (e) {}
             if (container.parentNode) container.parentNode.removeChild(container);
             resolve();
           }, 800);
-        }, 5000);
       };
 
-      if (loader.readyState >= 1) {
-        startPlayback();
-      } else {
-        loader.addEventListener('loadedmetadata', startPlayback, { once: true });
-        setTimeout(startPlayback, 300);
-      }
+      const animate = (time) => {
+        if (!lastTime) lastTime = time;
+        const delta = time - lastTime;
+        
+        if (delta > interval) {
+          lastTime = time - (delta % interval);
+          
+          if (frameIndex < totalFrames) {
+             const img = images[frameIndex];
+             if (img.complete && img.naturalWidth > 0) {
+                 if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+                     canvas.width = img.naturalWidth;
+                     canvas.height = img.naturalHeight;
+                 }
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                 ctx.drawImage(img, 0, 0);
+                 frameIndex++;
+             }
+             // If frame not ready, we skip drawing but stay on same frameIndex
+          } else {
+             finishCtx();
+             return;
+          }
+        }
+        animationFrameId = requestAnimationFrame(animate);
+      };
+
+      requestAnimationFrame(animate);
+
+      // Failsafe exit (duration of sequence + buffer)
+      setTimeout(finishCtx, 22000);
     });
   }
 
