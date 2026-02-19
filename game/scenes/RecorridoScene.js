@@ -10,7 +10,7 @@ import { CursorRadarModule } from './CursorRadarModule.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GamerLUTPass } from '../core/GamerLUTPass.js';
-import { getVideoSource } from '../core/VideoSupport.js';
+import { getVideoSource, browserInfo } from '../core/VideoSupport.js';
 
 // 👇 Control the starting scene here (0=escena01, 1=escena02, 2=escena03, etc.)
 // Ronda 1, Ambiente 1 = escena 0
@@ -304,7 +304,76 @@ export class RecorridoScene extends BaseScene {
   touchTapThreshold = 12; // pixels: tap if drag < threshold
 
 
+  showIncompatibleBrowserOverlay() {
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
+    overlay.style.zIndex = '100000';
+    overlay.style.display = 'flex';
+    overlay.style.flexDirection = 'column';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    overlay.style.color = '#ffffff';
+    overlay.style.fontFamily = 'monospace';
+    overlay.style.textAlign = 'center';
+    overlay.style.padding = '20px';
+
+    const title = document.createElement('h2');
+    title.innerText = 'Tu navegador no es compatible';
+    title.style.marginBottom = '20px';
+    title.style.fontSize = '2rem';
+
+    const message = document.createElement('p');
+    message.innerText = 'Esta experiencia requiere soporte de video WebM con transparencia.';
+    message.style.marginBottom = '10px';
+    message.style.fontSize = '1.2rem';
+
+    const recommendation = document.createElement('p');
+    recommendation.innerText = 'Recomendamos usar Chrome, Firefox o Edge en escritorio o Android.';
+    recommendation.style.marginBottom = '30px';
+    recommendation.style.fontSize = '1rem';
+    recommendation.style.color = '#ccc';
+
+    const backButton = document.createElement('button');
+    backButton.innerText = 'Volver al Menú';
+    backButton.style.padding = '12px 24px';
+    backButton.style.fontSize = '1.2rem';
+    backButton.style.cursor = 'pointer';
+    backButton.style.backgroundColor = '#FFFFFF';
+    backButton.style.color = '#000000';
+    backButton.style.border = 'none';
+    backButton.style.borderRadius = '4px';
+    
+    backButton.addEventListener('mouseenter', () => {
+      backButton.style.backgroundColor = '#DDDDDD';
+    });
+    backButton.addEventListener('mouseleave', () => {
+      backButton.style.backgroundColor = '#FFFFFF';
+    });
+
+    backButton.addEventListener('click', () => {
+      overlay.remove();
+      window.location.hash = 'menu';
+    });
+
+    overlay.appendChild(title);
+    overlay.appendChild(message);
+    overlay.appendChild(recommendation);
+    overlay.appendChild(backButton);
+    document.body.appendChild(overlay);
+  }
+
   async mount() {
+    const { isSafari, isIOS, supportsWebMAlpha } = browserInfo;
+    if (isSafari || isIOS || !supportsWebMAlpha) {
+      this.showIncompatibleBrowserOverlay();
+      return; 
+    }
+
     // 👇 Limpiar cualquier overlay del menú que haya quedado abierto
     const menuOverlays = document.querySelectorAll('body > div');
     menuOverlays.forEach(overlay => {
