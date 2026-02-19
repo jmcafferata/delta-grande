@@ -4525,11 +4525,11 @@ export class SimuladorScene extends BaseScene {
       this._activeTool = pickDefaultTool();
     }
     this._syncToolButtons();
-    this._restartStageHints();
     this._updateProgressBar();
 
     this._updateSeedLabels();
     this._onStageChanged(stage?.id);
+    this._restartStageHints();
   }
 
   _updateSeedLabels() {
@@ -4629,7 +4629,7 @@ export class SimuladorScene extends BaseScene {
   }
 
   _stopHintCycle(options = {}) {
-    const { hide = true, immediate = false } = options;
+    const { hide = true, immediate = false, stopAudio = true } = options;
     if (this._hintShowTimer) {
       clearTimeout(this._hintShowTimer);
       this._hintShowTimer = null;
@@ -4641,7 +4641,7 @@ export class SimuladorScene extends BaseScene {
     this._hintCycle = null;
     
     // Stop hint audio
-    if (this._tutorialAudio) {
+    if (stopAudio && this._tutorialAudio) {
       this._tutorialAudio.pause();
       this._tutorialAudio.currentTime = 0;
     }
@@ -4652,6 +4652,12 @@ export class SimuladorScene extends BaseScene {
   }
 
   _restartStageHints() {
+    const tutorialActive = this._tutorial?.active || this._tutorial?.paused || (this._tutorial?.queue?.length ?? 0) > 0;
+    if (tutorialActive) {
+      // Clear hint timers/messages while tutorial is active, without touching tutorial VO.
+      this._stopHintCycle({ stopAudio: false, immediate: true });
+      return;
+    }
     this._stopHintCycle();
     if (this._stageComplete) return;
     const stage = this._stages[this._currentStageIndex];
@@ -4666,6 +4672,8 @@ export class SimuladorScene extends BaseScene {
 
   _runHintCycle() {
     if (this._stageComplete) return;
+    const tutorialActive = this._tutorial?.active || this._tutorial?.paused || (this._tutorial?.queue?.length ?? 0) > 0;
+    if (tutorialActive) return;
     const state = this._hintCycle;
     if (!state || !Array.isArray(state.hints) || !state.hints.length || !this._goalMessageEl) {
       return;
@@ -5740,7 +5748,6 @@ export class SimuladorScene extends BaseScene {
 
     this._syncWaterButtons();
     this._syncToolButtons();
-  this._restartStageHints();
 
     this._initTutorialSystem();
     this._startInitialTutorial();
@@ -6327,6 +6334,8 @@ export class SimuladorScene extends BaseScene {
       this._tutorialAudio.pause();
       this._tutorialAudio.currentTime = 0;
     }
+    // Ensure hints cannot run/play while tutorial is on screen.
+    this._stopHintCycle({ immediate: true, stopAudio: false });
 
     const next = this._tutorial.queue.shift();
     if (!next) {
@@ -6338,6 +6347,7 @@ export class SimuladorScene extends BaseScene {
         this._tutorialOverlay.style.pointerEvents = 'none';
       }
       this._flushStageIntroIfReady();
+      this._restartStageHints();
       return;
     }
 
