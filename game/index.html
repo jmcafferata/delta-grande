@@ -729,7 +729,10 @@
         </div>
       </div>
       <div class="metadata-overlay" aria-hidden="true">
-        <video src="../game-assets/recorrido/paneles/panel%20metadata.webm" playsinline muted loop autoplay></video>
+        <video playsinline muted loop autoplay>
+          <source src="../game-assets/recorrido/paneles/panel%20metadata.mov" type="video/quicktime">
+          <source src="../game-assets/recorrido/paneles/panel%20metadata.webm" type="video/webm">
+        </video>
       </div>
 
       <div class="video-overlay" id="videoOverlay">
@@ -739,7 +742,10 @@
              Pre-created element so JS can show/pause/hide it. Now centered
              as a square with styles defined in the head <style>. -->
         <div id="sequenceOverlay" aria-hidden="true">
-          <video id="sequenceOverlayVideo" src="/game-assets/recorrido/interfaz/loading-text-box-animation.webm" muted playsinline></video>
+          <video id="sequenceOverlayVideo" muted playsinline>
+            <source src="/game-assets/recorrido/interfaz/loading-text-box-animation.mov" type="video/quicktime">
+            <source src="/game-assets/recorrido/interfaz/loading-text-box-animation.webm" type="video/webm">
+          </video>
         </div>
       </div>
 

@@ -3122,7 +3122,7 @@ export class RecorridoScene extends BaseScene {
       zocaloVideo.ontimeupdate = null;
       zocaloVideo.onloadedmetadata = null;
 
-      zocaloVideo.src = st.zocalo;
+      zocaloVideo.src = getVideoSource(st.zocalo);
       zocaloVideo.currentTime = 0;
 
       // 👇 Configurar playbackRate DESPUÉS de que se carguen los metadatos
@@ -5749,7 +5749,7 @@ export class RecorridoScene extends BaseScene {
 
               sequenceVideo = document.createElement('video');
               sequenceVideo.id = seqVideoId;
-              sequenceVideo.src = '/game-assets/recorrido/interfaz/loading-text-box-animation.webm';
+              sequenceVideo.src = getVideoSource('/game-assets/recorrido/interfaz/loading-text-box-animation.webm');
               sequenceVideo.muted = true;
               sequenceVideo.loop = false;
               sequenceVideo.playsInline = true;
@@ -5766,7 +5766,7 @@ export class RecorridoScene extends BaseScene {
             sequenceVideo.muted = true;
             sequenceVideo.loop = false;
             sequenceVideo.playsInline = true;
-            if (!sequenceVideo.src) sequenceVideo.src = '/game-assets/recorrido/interfaz/loading-text-box-animation.webm';
+            if (!sequenceVideo.src) sequenceVideo.src = getVideoSource('/game-assets/recorrido/interfaz/loading-text-box-animation.webm');
 
             // Reproducir el video overlay y mantener en el último frame al terminar
             sequenceVideo.addEventListener('ended', () => {
