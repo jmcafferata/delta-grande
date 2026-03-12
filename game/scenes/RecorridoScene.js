@@ -369,10 +369,6 @@ export class RecorridoScene extends BaseScene {
 
   async mount() {
     const { isSafari, isIOS, supportsWebMAlpha } = browserInfo;
-    if (isSafari || isIOS || !supportsWebMAlpha) {
-      this.showIncompatibleBrowserOverlay();
-      return; 
-    }
 
     // 👇 Limpiar cualquier overlay del menú que haya quedado abierto
     const menuOverlays = document.querySelectorAll('body > div');
