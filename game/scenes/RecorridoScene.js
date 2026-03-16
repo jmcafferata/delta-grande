@@ -152,6 +152,8 @@ export class RecorridoScene extends BaseScene {
     this.rastroAnimationAction = null;
     this.videoElement = null;
     this.currentVideoTexture = null; // For cleanup
+    this._glitchCanvas = null;       // Canvas bridge for HEVC alpha in Safari WebGL
+    this._glitchCanvasCtx = null;
     this.envTexture = null; // For cleanup
     this.currentStageModelUrl = null; // Track current model URL
     this.sunObject = null;
@@ -1456,6 +1458,8 @@ export class RecorridoScene extends BaseScene {
       this.videoElement.src = '';
       this.videoElement = null;
     }
+    this._glitchCanvas = null;
+    this._glitchCanvasCtx = null;
 
     // Clean up preloaded data video
     if (this.preloadedDataVideo) {
@@ -1567,6 +1571,8 @@ export class RecorridoScene extends BaseScene {
       this.videoElement.load();
       this.videoElement = null;
     }
+    this._glitchCanvas = null;
+    this._glitchCanvasCtx = null;
 
     if (this.currentVideoTexture) {
       this.currentVideoTexture.dispose();
@@ -1949,7 +1955,28 @@ export class RecorridoScene extends BaseScene {
                   this.videoElement.playbackRate = speciesData.glitchVideoSpeed || 0.25;
                   this.videoElement.play().catch(e => console.error("Video play failed:", e));
 
-                  const videoTexture = new THREE.VideoTexture(this.videoElement);
+                  let videoTexture;
+                  if (!browserInfo.supportsWebMAlpha) {
+                    // Safari: HEVC alpha is not exposed through WebGL texImage2D.
+                    // Use a canvas bridge: draw each frame to a 2D canvas and upload
+                    // that canvas as the texture — canvas drawImage preserves alpha.
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 512;
+                    const ctx = canvas.getContext('2d');
+                    this._glitchCanvas = canvas;
+                    this._glitchCanvasCtx = ctx;
+                    // Prime the canvas once metadata is ready so size is correct
+                    this.videoElement.addEventListener('loadedmetadata', () => {
+                      if (this._glitchCanvas && this.videoElement) {
+                        this._glitchCanvas.width = this.videoElement.videoWidth || 512;
+                        this._glitchCanvas.height = this.videoElement.videoHeight || 512;
+                      }
+                    }, { once: true });
+                    videoTexture = new THREE.CanvasTexture(canvas);
+                  } else {
+                    videoTexture = new THREE.VideoTexture(this.videoElement);
+                  }
                   videoTexture.generateMipmaps = false;
                   videoTexture.minFilter = THREE.LinearFilter;
                   videoTexture.magFilter = THREE.LinearFilter;
@@ -3399,6 +3426,15 @@ export class RecorridoScene extends BaseScene {
 
     this.updateGlitchFlash();
 
+    // 🖼️ Canvas bridge: draw glitch video to canvas so Safari WebGL gets alpha
+    if (this._glitchCanvas && this._glitchCanvasCtx && this.videoElement &&
+        this.videoElement.readyState >= 2 && this.currentVideoTexture) {
+      const ctx = this._glitchCanvasCtx;
+      ctx.clearRect(0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
+      ctx.drawImage(this.videoElement, 0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
+      this.currentVideoTexture.needsUpdate = true;
+    }
+
     // 🎯 Update camera debug overlay
     this.updateCameraDebugOverlay();
   }
@@ -4687,6 +4723,8 @@ export class RecorridoScene extends BaseScene {
       try { this.videoElement.load(); } catch { }
       this.videoElement = null;
     }
+    this._glitchCanvas = null;
+    this._glitchCanvasCtx = null;
 
     if (this.currentVideoTexture) {
       try { this.currentVideoTexture.dispose(); } catch { }
