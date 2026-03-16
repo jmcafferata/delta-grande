@@ -5252,8 +5252,9 @@ export class RecorridoScene extends BaseScene {
         width: 100%;
         height: 100%;
         object-fit: cover;
+        background: transparent;
       `;
-      barridaVideo.src = '/game-assets/recorrido/transiciones_escenas/barrida.webm';
+      barridaVideo.src = getVideoSource('/game-assets/recorrido/transiciones_escenas/barrida.webm');
       barridaVideo.muted = true; // 👈 Silenciar barrida para que solo suene transitionAudio
       barridaVideo.playsInline = true;
       barridaVideo.preload = 'auto'; // 👈 Precargar el video
