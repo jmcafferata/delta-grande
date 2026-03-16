@@ -1958,21 +1958,15 @@ export class RecorridoScene extends BaseScene {
                   let videoTexture;
                   if (!browserInfo.supportsWebMAlpha) {
                     // Safari: HEVC alpha is not exposed through WebGL texImage2D.
-                    // Use a canvas bridge: draw each frame to a 2D canvas and upload
-                    // that canvas as the texture — canvas drawImage preserves alpha.
+                    // Use a canvas bridge: draw each video frame to a 2D canvas and
+                    // upload that canvas as texture — 2D canvas drawImage preserves alpha.
+                    // Canvas stays at a fixed large size; video is drawn scaled down each frame.
+                    // Do NOT resize the canvas dynamically (clearing it causes invisible frames).
                     const canvas = document.createElement('canvas');
-                    canvas.width = 512;
-                    canvas.height = 512;
-                    const ctx = canvas.getContext('2d');
+                    canvas.width = 1024;
+                    canvas.height = 1024;
                     this._glitchCanvas = canvas;
-                    this._glitchCanvasCtx = ctx;
-                    // Prime the canvas once metadata is ready so size is correct
-                    this.videoElement.addEventListener('loadedmetadata', () => {
-                      if (this._glitchCanvas && this.videoElement) {
-                        this._glitchCanvas.width = this.videoElement.videoWidth || 512;
-                        this._glitchCanvas.height = this.videoElement.videoHeight || 512;
-                      }
-                    }, { once: true });
+                    this._glitchCanvasCtx = canvas.getContext('2d');
                     videoTexture = new THREE.CanvasTexture(canvas);
                   } else {
                     videoTexture = new THREE.VideoTexture(this.videoElement);
@@ -3427,12 +3421,15 @@ export class RecorridoScene extends BaseScene {
     this.updateGlitchFlash();
 
     // 🖼️ Canvas bridge: draw glitch video to canvas so Safari WebGL gets alpha
-    if (this._glitchCanvas && this._glitchCanvasCtx && this.videoElement &&
-        this.videoElement.readyState >= 2 && this.currentVideoTexture) {
-      const ctx = this._glitchCanvasCtx;
-      ctx.clearRect(0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
-      ctx.drawImage(this.videoElement, 0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
-      this.currentVideoTexture.needsUpdate = true;
+    // Uses try/catch instead of readyState check: drawImage throws InvalidStateError
+    // if video has no data yet, which we suppress. Once video has frames, it draws fine.
+    if (this._glitchCanvas && this._glitchCanvasCtx && this.videoElement && this.currentVideoTexture) {
+      try {
+        const ctx = this._glitchCanvasCtx;
+        ctx.clearRect(0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
+        ctx.drawImage(this.videoElement, 0, 0, this._glitchCanvas.width, this._glitchCanvas.height);
+        this.currentVideoTexture.needsUpdate = true;
+      } catch (e) { /* video not yet decodable — silently wait */ }
     }
 
     // 🎯 Update camera debug overlay
