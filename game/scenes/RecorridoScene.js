@@ -1109,6 +1109,14 @@ export class RecorridoScene extends BaseScene {
   showStageLoadingOverlay(message = 'Cargando escena...') {
     if (this.stageLoadingOverlay || !this.overlayRoot) return;
 
+    // Si la animación de loading box o la transición barrida están activas,
+    // no mostramos el fondo negro para que no tape la UI de transición.
+    const seqOverlay = document.getElementById('sequenceOverlay');
+    const transitionActive = seqOverlay && seqOverlay.style.display !== 'none' && seqOverlay.getAttribute('aria-hidden') !== 'true';
+    const bg = transitionActive
+      ? 'transparent'
+      : 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0.9))';
+
     const overlay = document.createElement('div');
     overlay.className = 'stage-loading-overlay';
     overlay.style.cssText = `
@@ -1119,7 +1127,7 @@ export class RecorridoScene extends BaseScene {
       justify-content: center;
       gap: 12px;
       padding-bottom: max(24px, 6vh);
-      background: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0.9));
+      background: ${bg};
       color: #fff;
       font-family: "new-science", 'New Science', system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
       font-size: 15px;
