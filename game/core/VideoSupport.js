@@ -3,7 +3,8 @@ export const detectBrowser = () => {
     const ua = navigator.userAgent || '';
     const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|Edg/i.test(ua);
     const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-    return { isSafari, isIOS, supportsWebMAlpha: !isSafari };
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    return { isSafari, isIOS, isMobile, supportsWebMAlpha: !isSafari };
 };
 
 export const browserInfo = detectBrowser();

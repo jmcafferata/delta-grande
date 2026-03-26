@@ -137,6 +137,15 @@ export const UI = new class{
     try { this.videoEl.pause(); } catch {}
     // restaurar playbackRate por si se modificó
     try { this.videoEl.playbackRate = 1; } catch {}
+    
+    // 🔥 Optimización Móvil: Liberar el recurso de video de la RAM de inmediato
+    if (window.browserInfo?.isMobile || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      if (this.videoEl && this.videoEl.getAttribute('src')) {
+        try { this.videoEl.removeAttribute('src'); } catch(e) {}
+        try { this.videoEl.load(); } catch(e) {}
+      }
+    }
+    
     this.videoOverlayEl.style.display = 'none';
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(()=>{});

@@ -1325,6 +1325,12 @@ export class RecorridoScene extends BaseScene {
       if (speciesDataVideo) {
         speciesDataVideo.pause();
         speciesDataVideo.currentTime = 0;
+        
+        // Optimización Móvil: Liberar completamente el recurso actual para aliviar RAM
+        if (browserInfo.isMobile) {
+          try { speciesDataVideo.removeAttribute('src'); } catch(e) {}
+          try { speciesDataVideo.load(); } catch(e) {}
+        }
       }
     }
 
@@ -1516,6 +1522,11 @@ export class RecorridoScene extends BaseScene {
       if (speciesDataVideo) {
         speciesDataVideo.pause();
         speciesDataVideo.currentTime = 0;
+        // Optimización Móvil: Liberar memoria al purgar el source activamente si es teléfono
+        if (browserInfo.isMobile && speciesDataVideo.getAttribute('src')) {
+          try { speciesDataVideo.removeAttribute('src'); } catch(e) {}
+          try { speciesDataVideo.load(); } catch(e) {}
+        }
       }
     }
 
@@ -2518,7 +2529,8 @@ export class RecorridoScene extends BaseScene {
     }
 
     // 📺 Precargar video de data de la especie para evitar lag al hacer click
-    if (this.currentSpecies?.assets?.dataVideo) {
+    // En móviles suprimimos la precarga para ahorrar límite de memoria/streams en navegadores móviles.
+    if (this.currentSpecies?.assets?.dataVideo && !browserInfo.isMobile) {
       const dataVideoSrc = getVideoSource(this.currentSpecies.assets.dataVideo, {
         fallback: this.currentSpecies.assets.dataVideoFallback || null
       });
