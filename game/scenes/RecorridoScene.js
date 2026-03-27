@@ -1801,24 +1801,30 @@ export class RecorridoScene extends BaseScene {
       
       this.stageModel = gltf.scene;
 
-      // 👇 FIX: Load environment texture from st.photo if available
-      let envTexture = null;
-      let envTextureUsed = false;
-      
-      // 🔥 Dispose previous environment texture if it exists
-      if (this.envTexture) {
-        this.envTexture.dispose();
-        this.envTexture = null;
-      }
-      
-      if (st.photo) {
-        try {
-          // Load texture with a fresh loader to ensure no caching issues
-          const texLoader = new THREE.TextureLoader();
-          envTexture = await new Promise((resolve, reject) => {
-            texLoader.load(st.photo, resolve, undefined, reject);
-          });
-          envTexture.colorSpace = THREE.SRGBColorSpace;
+    // 👇 FIX: Load environment texture from st.photo if available
+    let envTexture = null;
+    let envTextureUsed = false;
+
+    // 🔥 Dispose previous environment texture if it exists
+    if (this.envTexture) {
+      this.envTexture.dispose();
+      this.envTexture = null;
+    }
+
+    if (st.photo) {
+      try {
+        // 🔥 Optimización Móvil: Cargar variante de baja resolución si es teléfono.
+        let photoPath = st.photo;
+        if (browserInfo.isMobile && typeof photoPath === 'string') {
+          photoPath = photoPath.replace(/\.(jpg|jpeg|png)$/i, '_mobile.$1');
+        }
+        
+        // Load texture with a fresh loader to ensure no caching issues
+        const texLoader = new THREE.TextureLoader();
+        envTexture = await new Promise((resolve, reject) => {
+          texLoader.load(photoPath, resolve, undefined, reject);
+        });
+        envTexture.colorSpace = THREE.SRGBColorSpace;
           envTexture.flipY = false; 
         } catch (e) {
           console.warn('Could not load environment texture:', e);
@@ -2376,7 +2382,13 @@ export class RecorridoScene extends BaseScene {
       await this.spawnButterflyNearGlitch();
     } else if (st.photo) {
       const sphereGeo = new THREE.SphereGeometry(500, 64, 48).scale(-1, 1, 1);
-      const tex = await AssetLoader.texture(st.photo);
+      
+      let photoPath = st.photo;
+      if (browserInfo.isMobile && typeof photoPath === 'string') {
+        photoPath = photoPath.replace(/\.(jpg|jpeg|png)$/i, '_mobile.$1');
+      }
+      
+      const tex = await AssetLoader.texture(photoPath);
       const sphereMat = new THREE.MeshBasicMaterial({
         map: tex,
         fog: false,

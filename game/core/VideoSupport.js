@@ -14,18 +14,24 @@ export const browserInfo = detectBrowser();
 export const getVideoSource = (webmPath, options = {}) => {
     const { fallback = null, hideIfUnsupported = false } = options;
     
-    if (browserInfo.supportsWebMAlpha) {
-        return webmPath;
+    // Inject _mobile suffix for mobile devices automatically
+    let processedPath = webmPath;
+    if (browserInfo.isMobile && typeof processedPath === 'string') {
+        processedPath = processedPath.replace(/\.(webm|mov)$/i, '_mobile.$1');
     }
-    
+
+    if (browserInfo.supportsWebMAlpha) {
+        return processedPath;
+    }
+
     // Safari: try .mov version (HEVC with alpha)
     if (fallback) {
-        return fallback;
+        let processedFallback = fallback;
+        if (browserInfo.isMobile && typeof processedFallback === 'string') {
+            processedFallback = processedFallback.replace(/\.(webm|mov)$/i, '_mobile.$1');
+        }
+        return processedFallback;
     }
-    
+
     // Auto-generate .mov path by replacing extension
-    const movPath = webmPath.replace(/\.webm$/i, '.mov');
-    
-    // Return null to hide if specified and no fallback
-    return hideIfUnsupported ? null : movPath;
-};
+    const movPath = processedPath.replace(/\.webm$/i, '.mov');
