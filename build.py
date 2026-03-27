@@ -66,7 +66,8 @@ def build():
         'favicon.ico',
         'favicon*.png',
         'apple-touch-icon*.png',
-        'favicon*.svg'
+        'favicon*.svg',
+        'logo-*.*'
     ]
 
     # List of specific large files to exclude that are not used in the game
