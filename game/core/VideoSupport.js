@@ -35,3 +35,7 @@ export const getVideoSource = (webmPath, options = {}) => {
 
     // Auto-generate .mov path by replacing extension
     const movPath = processedPath.replace(/\.webm$/i, '.mov');
+
+    if (hideIfUnsupported) return null;
+    return movPath;
+};
