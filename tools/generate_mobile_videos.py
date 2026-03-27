@@ -5,7 +5,8 @@ import glob
 ASSETS_DIR = r"C:\Users\jmcaf\Desktop\PERRO EN LA LUNA\DELTA GRANDE\delta-grande\game-assets"
 
 def get_video_files():
-    patterns = [os.path.join(ASSETS_DIR, "**", "*.webm"), os.path.join(ASSETS_DIR, "**", "*.mov")]
+    # Solo procesamos WebM. MOV requiere codecs de Apple (VideoToolbox) para escalar con Alpha, lo cual Windows no soporta en libx265.
+    patterns = [os.path.join(ASSETS_DIR, "**", "*.webm")]
     files = []
     for pattern in patterns:
         files.extend(glob.glob(pattern, recursive=True))
@@ -22,12 +23,16 @@ def process_file(filepath):
         print(f" -> Ya existe, omitiendo.")
         return
 
-    # Escalar a altura 720p 
-    if ext == ".webm":
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", filepath, "-vf", "scale=-1:720", "-c:v", "libvpx-vp9", "-b:v", "800k", "-auto-alt-ref", "0", "-pix_fmt", "yuva420p", out_filepath]
-    elif ext == ".mov":
-        # Ajustamos comando de HEVC con alpha segun Safari
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", filepath, "-vf", "scale=-1:720", "-c:v", "hevc", "-vtag", "hvc1", "-q:v", "30", out_filepath]
+    # Escalar a altura 720p Preservando Alpha
+    # CRITICO: -c:v libvpx-vp9 debe ir ANTES de -i para que el decodificador extraiga el canal alpha original de la pista Matroska y no lo achate a YUV420p opaco.
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", 
+        "-c:v", "libvpx-vp9",
+        "-i", filepath, 
+        "-vf", "scale=-1:720", 
+        "-c:v", "libvpx-vp9", "-b:v", "800k", "-auto-alt-ref", "0", "-pix_fmt", "yuva420p", 
+        out_filepath
+    ]
     
     try:
         subprocess.run(cmd, check=True)

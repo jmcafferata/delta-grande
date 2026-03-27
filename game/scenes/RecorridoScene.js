@@ -3175,7 +3175,7 @@ export class RecorridoScene extends BaseScene {
       zocaloVideo.ontimeupdate = null;
       zocaloVideo.onloadedmetadata = null;
 
-      zocaloVideo.src = getVideoSource(st.zocalo);
+      zocaloVideo.src = getVideoSource(st.zocalo, { skipMobileSuffix: true });
       zocaloVideo.currentTime = 0;
 
       // 👇 Configurar playbackRate DESPUÉS de que se carguen los metadatos
