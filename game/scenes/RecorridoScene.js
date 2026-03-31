@@ -3109,33 +3109,48 @@ export class RecorridoScene extends BaseScene {
       return false; // Video not ready, don't consider transparent
     }
 
+    // Support both mouse events and touch events (iOS)
+    const clientX = (event.changedTouches && event.changedTouches[0])
+      ? event.changedTouches[0].clientX
+      : (event.touches && event.touches[0]) ? event.touches[0].clientX : event.clientX;
+    const clientY = (event.changedTouches && event.changedTouches[0])
+      ? event.changedTouches[0].clientY
+      : (event.touches && event.touches[0]) ? event.touches[0].clientY : event.clientY;
+
     // Get click position relative to the video overlay
     const rect = videoElement.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
 
-    // Create canvas to read pixel data
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    canvas.width = videoElement.videoWidth;
-    canvas.height = videoElement.videoHeight;
+    try {
+      // Create canvas to read pixel data
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.width = videoElement.videoWidth || videoElement.offsetWidth || 1;
+      canvas.height = videoElement.videoHeight || videoElement.offsetHeight || 1;
 
-    // Draw current video frame
-    context.drawImage(videoElement, 0, 0);
+      // Draw current video frame
+      context.drawImage(videoElement, 0, 0);
 
-    // Calculate pixel position (scale from display size to video size)
-    const scaleX = videoElement.videoWidth / rect.width;
-    const scaleY = videoElement.videoHeight / rect.height;
-    const pixelX = Math.floor(x * scaleX);
-    const pixelY = Math.floor(y * scaleY);
+      // Calculate pixel position (scale from display size to video size)
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const pixelX = Math.max(0, Math.min(canvas.width - 1, Math.floor(x * scaleX)));
+      const pixelY = Math.max(0, Math.min(canvas.height - 1, Math.floor(y * scaleY)));
 
-    // Get pixel data (RGBA)
-    const pixelData = context.getImageData(pixelX, pixelY, 1, 1).data;
-    const alpha = pixelData[3]; // Alpha channel
+      // Get pixel data (RGBA)
+      const pixelData = context.getImageData(pixelX, pixelY, 1, 1).data;
+      const alpha = pixelData[3]; // Alpha channel
 
-    // Consider pixels with alpha < 128 as transparent
-    const alphaThreshold = 128;
-    return alpha < alphaThreshold;
+      // Consider pixels with alpha < 128 as transparent
+      return alpha < 128;
+    } catch (e) {
+      // iOS Safari may throw SecurityError when reading video canvas pixels.
+      // Fall back to a position-based heuristic: treat the outer 20% border as transparent.
+      const relX = x / rect.width;
+      const relY = y / rect.height;
+      return relX < 0.1 || relX > 0.9 || relY < 0.1 || relY > 0.9;
+    }
   }
 
   onResize(w, h) {
@@ -3943,6 +3958,40 @@ export class RecorridoScene extends BaseScene {
         try { efedraWrapper.style.display = 'block'; } catch (e) {}
         try { efedraWrapper.style.pointerEvents = 'auto'; } catch (e) {}
         try { videoEl.style.pointerEvents = 'auto'; } catch (e) {}
+
+        // 👇 Add explicit close button for iOS / mobile where pixel-read may fail
+        const existingCloseBtn = efedraWrapper.querySelector('.efedra-close-btn');
+        if (existingCloseBtn) existingCloseBtn.remove();
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'efedra-close-btn';
+        closeBtn.setAttribute('aria-label', 'Cerrar');
+        closeBtn.style.cssText = `
+          position: absolute;
+          top: 4%;
+          right: 2%;
+          z-index: 10010;
+          width: 7%;
+          aspect-ratio: 1;
+          background: rgba(0,0,0,0.55);
+          border: 1.5px solid rgba(255,255,255,0.5);
+          border-radius: 50%;
+          color: #fff;
+          font-size: clamp(12px, 2vmin, 22px);
+          line-height: 1;
+          cursor: pointer;
+          pointer-events: auto;
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        `;
+        closeBtn.textContent = '✕';
+        efedraWrapper.appendChild(closeBtn);
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          doCloseEfedra();
+        });
       }
 
       // 🔄 Loop from second 3 when video ends
@@ -3974,10 +4023,9 @@ export class RecorridoScene extends BaseScene {
       // 👇 Deshabilitar cierre por 4 segundos para permitir que el video se reproduzca
       let canClose = false;
       setTimeout(() => { canClose = true; }, 4000);
-      
-      const handleEfedraClick = (e) => {
-        // If click was on a transparent pixel of the species video, close efedra UI
-        if (canClose && this.isVideoPixelTransparent(videoEl, e)) {
+
+      // Shared close logic (used by both pixel-transparent click and explicit close button)
+      const doCloseEfedra = () => {
           // Detener voz en off si está reproduciéndose
           if (this.currentSpeciesVO) {
             this.currentSpeciesVO.pause();
@@ -4020,6 +4068,12 @@ export class RecorridoScene extends BaseScene {
           try { if (efedraWrapper) { efedraWrapper.style.pointerEvents = 'none'; efedraWrapper.style.display = 'none'; } } catch (err) {}
           try { videoEl.pause(); videoEl.currentTime = 0; videoEl.src = ''; } catch (err) {}
 
+          // Remove close button if present
+          try {
+            const cb = efedraWrapper?.querySelector('.efedra-close-btn');
+            if (cb) cb.remove();
+          } catch (err) {}
+
           // Restore flechas and reset click flag
           this.flechaClicked = false;
           if (this.flechaObject) this.flechaObject.visible = true;
@@ -4039,6 +4093,12 @@ export class RecorridoScene extends BaseScene {
 
           // Remove listener
           if (efedraWrapper) efedraWrapper.removeEventListener('click', handleEfedraClick);
+      };
+      
+      const handleEfedraClick = (e) => {
+        // If click was on a transparent pixel of the species video, close efedra UI
+        if (canClose && this.isVideoPixelTransparent(videoEl, e)) {
+          doCloseEfedra();
         }
       };
 
@@ -4795,6 +4855,8 @@ export class RecorridoScene extends BaseScene {
       color: #eef2f6;
       opacity: 0;
       transition: opacity 0.5s ease;
+      cursor: auto;
+      touch-action: manipulation;
     `;
 
     const title = document.createElement('h2');
@@ -4829,6 +4891,8 @@ export class RecorridoScene extends BaseScene {
       border-radius: 999px;
       cursor: pointer;
       outline: none;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: rgba(251,254,94,0.15);
       transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
     `;
     if (!finalRound) {
@@ -4903,6 +4967,10 @@ export class RecorridoScene extends BaseScene {
     const parent = this.overlayRoot || document.body;
     parent.appendChild(overlay);
     this.completionOverlayEl = overlay;
+
+    // Restore cursor so iOS can interact with overlay buttons
+    try { document.documentElement.style.cursor = 'auto'; } catch (e) {}
+    try { document.body.style.cursor = 'auto'; } catch (e) {}
 
     // Fade in
     requestAnimationFrame(() => {

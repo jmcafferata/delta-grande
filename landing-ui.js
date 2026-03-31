@@ -2196,10 +2196,10 @@ window.addEventListener('keydown', (ev) => {
                 rows.forEach(row => row.innerHTML = '');
 
                 if (isMobile) {
-                    // Mobile: all 3 in the first row
+                    // Mobile: all 3 in the first row, clicks enabled
                     const row = rows[0];
                     picks.forEach(src => {
-                        const card = createCardElement(src, true);
+                        const card = createCardElement(src, false);
                         row.appendChild(card);
                     });
                 } else {

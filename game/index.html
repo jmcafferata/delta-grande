@@ -471,8 +471,9 @@
       max-width: 30vw;
       /* Prevent scaling down once the viewport becomes narrower than 16:9:
          compute the equivalent width at a 16:9 breakpoint and use it as
-         a minimum width so the element doesn't shrink below that. */
-      min-width: calc(53.3333vh); /* = 0.3 * (16/9) * 100vh ≈ 53.3333vh */
+         a minimum width so the element doesn't shrink below that.
+         Also cap at 90vw so it never overflows on portrait mobile. */
+      min-width: min(calc(53.3333vh), 90vw);
       aspect-ratio: 1 / 1;
       pointer-events: none;
       z-index: 10025;
@@ -611,7 +612,7 @@
          consistently with aspect ratio like other overlay boxes. */
       /* Make overlay larger but still responsive. Expose the chosen size as
          a CSS variable so child elements (like text) can base sizes off it. */
-      --overlay-size: 45vmin;
+      --overlay-size: min(45vmin, 90vw, 90vh);
       width: var(--overlay-size);
       aspect-ratio: 1 / 1;
       z-index: 10003;
