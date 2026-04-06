@@ -7,3 +7,5 @@ game-assets/sub/environments/environment.blend1
 dist/
 node_modules/
 portable/
+.vercel
+.env*.local
