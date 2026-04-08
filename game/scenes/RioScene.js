@@ -1539,6 +1539,15 @@ class Deck {
     // Clear existing
     this.container.innerHTML = '';
 
+    // Single shared WebGL renderer for all deck cards (avoids iOS WebGL context limit).
+    // iOS Safari hard-limits simultaneous WebGL contexts to ~4-8; one per card crashes it.
+    if (this.sharedRenderer) {
+      this.sharedRenderer.dispose();
+    }
+    this.sharedRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, preserveDrawingBuffer: true });
+    this.sharedRenderer.setPixelRatio(1);
+    this.sharedRenderer.setSize(150, 100, false);
+
     for (let i = 0; i < this.speciesList.length; i++) {
       const speciesDef = this.speciesList[i];
       const speciesObj = this.speciesObjs.find(s => s.def.key === speciesDef.key);
@@ -1618,10 +1627,10 @@ class Deck {
         this._updateColumn(true);
       });
 
-      // small WebGL scene per card
-      const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, alpha: true, antialias: true, preserveDrawingBuffer: false });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(150, 100, false);
+      // 2D canvas — receives blits from the single shared WebGL renderer
+      canvasEl.width = 150;
+      canvasEl.height = 100;
+      const ctx2d = canvasEl.getContext('2d');
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(50, 1.5, 0.1, 100);
@@ -1682,7 +1691,8 @@ class Deck {
       this.cards.push({
         key: speciesDef.key,
         element: cardEl,
-        renderer,
+        ctx2d,
+        canvas2d: canvasEl,
         scene,
         camera,
         modelTex,
@@ -1757,7 +1767,9 @@ class Deck {
       const c = this.cards[i];
       if (c.modelSil) c.modelSil.rotation.y += 0.5 * dt;
       if (c.modelTex) c.modelTex.rotation.y += 0.5 * dt;
-      c.renderer.render(c.scene, c.camera);
+      this.sharedRenderer.render(c.scene, c.camera);
+      c.ctx2d.clearRect(0, 0, c.canvas2d.width, c.canvas2d.height);
+      c.ctx2d.drawImage(this.sharedRenderer.domElement, 0, 0);
     }
 
     // smooth scroll toward target
@@ -1770,6 +1782,8 @@ class Deck {
   }
 
   destroy() {
+    this.sharedRenderer?.dispose();
+    this.sharedRenderer = null;
     if (this.container && this.container.parentNode) this.container.parentNode.removeChild(this.container);
     if (this.logoEl && this.logoEl.parentNode) {
       if (this._logoPointerHandler) {
@@ -2086,7 +2100,9 @@ class Deck {
         height: `100%`
       });
 
-      c.renderer.setSize(Math.max(1, mW), Math.max(1, mH), false);
+      this.sharedRenderer.setSize(Math.max(1, mW), Math.max(1, mH), false);
+      c.canvas2d.width = Math.max(1, mW);
+      c.canvas2d.height = Math.max(1, mH);
       c.camera.aspect = mW / Math.max(1, mH);
       c.camera.updateProjectionMatrix();
 
