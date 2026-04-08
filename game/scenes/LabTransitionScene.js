@@ -1,4 +1,5 @@
 import { BaseScene } from '../core/BaseScene.js';
+import { getVideoSource } from '../core/VideoSupport.js';
 
 // Tema visual consistente con RecorridoScene
 const EFEDRA_OVERLAY_THEME = {
@@ -125,7 +126,7 @@ export class LabTransitionScene extends BaseScene {
 
     // Logo arriba
     const logo = document.createElement('video');
-    logo.src = '/game-assets/recorrido/interfaz/logo_naranja_alpha.webm';
+    logo.src = getVideoSource('/game-assets/recorrido/interfaz/logo_naranja_alpha.webm');
     logo.style.cssText = `
       position: absolute;
       top: 8%;
@@ -362,7 +363,7 @@ export class LabTransitionScene extends BaseScene {
     return new Promise((resolve) => {
       // Logo naranja alpha - pantalla completa
       const logo = document.createElement('video');
-      logo.src = '/game-assets/menu/logo_naranja_alpha.webm';
+      logo.src = getVideoSource('/game-assets/menu/logo_naranja_alpha.webm');
       logo.style.cssText = `
         position: absolute;
         top: 0;
@@ -382,7 +383,7 @@ export class LabTransitionScene extends BaseScene {
 
       // Video mapa gigante - centrado verticalmente (inicia invisible)
       const video = document.createElement('video');
-      video.src = '/game-assets/laboratorio/cinematicas/mapa_gigante.webm';
+      video.src = getVideoSource('/game-assets/laboratorio/cinematicas/mapa_gigante.webm');
       video.style.cssText = `
         position: absolute;
         top: 50%;

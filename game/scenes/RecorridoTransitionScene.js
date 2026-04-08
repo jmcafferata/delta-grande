@@ -1,4 +1,5 @@
 import { BaseScene } from '../core/BaseScene.js';
+import { getVideoSource } from '../core/VideoSupport.js';
 
 // Tema visual consistente con RecorridoScene
 const EFEDRA_OVERLAY_THEME = {
@@ -188,7 +189,7 @@ export class RecorridoTransitionScene extends BaseScene {
     // Reproducir primer video de transición con texto
     await this.playTransitionVideo(
       overlay,
-      '/game-assets/transiciones/secuencia_inicio_recorrido1.webm',
+      getVideoSource('/game-assets/transiciones/secuencia_inicio_recorrido1.webm'),
       () => skipped,
       'El espinal cubre la gran parte del territorio entrerriano, llegando a las costas del Delta del Paraná, donde se fusiona con la selva en galería.',
       '/game-assets/transiciones/voiceovers/recorrido_transition_0.mp3'
@@ -198,7 +199,7 @@ export class RecorridoTransitionScene extends BaseScene {
     if (!skipped) {
       await this.playTransitionVideo(
         overlay,
-        '/game-assets/transiciones/secuencia_inicio_recorrido2.webm',
+        getVideoSource('/game-assets/transiciones/secuencia_inicio_recorrido2.webm'),
         () => skipped,
         'Aquí, en la unión de estos ecosistemas, se pueden encontrar una gran variedad de especies: algunas muy escurridizas, otras que les encanta hacerse ver.',
         '/game-assets/transiciones/voiceovers/recorrido_transition_1.mp3'

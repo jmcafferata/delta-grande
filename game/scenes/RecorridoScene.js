@@ -5321,7 +5321,7 @@ export class RecorridoScene extends BaseScene {
           }
         })
         .catch(e => console.error('Failed to load transition texts:', e));
-      const transitionVideoSrc = `/game-assets/recorrido/transiciones_escenas/transicion${String(nextSceneIndex).padStart(2, '0')}.webm`;
+      const transitionVideoSrc = getVideoSource(`/game-assets/recorrido/transiciones_escenas/transicion${String(nextSceneIndex).padStart(2, '0')}.webm`);
       const FRAME_RATE = 30; // 👈 ajustar si el clip usa otro framerate
       const BARRIDA_TRIGGER_FRAME = 19; // 👈 Iniciar video de transición al frame 19 (barrida solo dura ~44 frames)
 

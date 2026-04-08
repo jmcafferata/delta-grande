@@ -1,4 +1,5 @@
 import { BaseScene } from '../core/BaseScene.js';
+import { getVideoSource } from '../core/VideoSupport.js';
 
 export class SubacuaticoTransitionScene extends BaseScene {
   constructor(app) {
@@ -40,13 +41,13 @@ export class SubacuaticoTransitionScene extends BaseScene {
     document.body.style.cursor = 'auto';
 
     // Ir a la escena subacuática
-    location.hash = '#sub';
+    location.hash = '#rio';
   }
 
   async playTransitionVideo(overlay) {
     return new Promise((resolve) => {
       const video = document.createElement('video');
-      video.src = '/game-assets/transiciones/lab-a-subacua.webm';
+      video.src = getVideoSource('/game-assets/transiciones/lab-a-subacua.webm');
       video.style.cssText = `
         width: 100%;
         height: 100%;
@@ -70,10 +71,28 @@ export class SubacuaticoTransitionScene extends BaseScene {
       // Reproducir video
       video.play().catch((err) => {
         console.warn('[SubacuaticoTransitionScene] Error playing video:', err);
+        // Si el video falla (ej: Safari sin soporte), resolver directamente
+        resolve();
       });
+
+      // Timeout de seguridad: si el video no termina en 30s, continuar
+      const safetyTimeout = setTimeout(() => {
+        console.warn('[SubacuaticoTransitionScene] Video timeout, continuing...');
+        if (video.parentNode) video.parentNode.removeChild(video);
+        resolve();
+      }, 30000);
+
+      // Si el video tiene error al cargar, resolver
+      video.addEventListener('error', () => {
+        console.warn('[SubacuaticoTransitionScene] Video load error, skipping transition');
+        clearTimeout(safetyTimeout);
+        if (video.parentNode) video.parentNode.removeChild(video);
+        resolve();
+      }, { once: true });
 
       // Cuando termine el video, hacer fade out
       video.addEventListener('ended', () => {
+        clearTimeout(safetyTimeout);
         // Fade out a negro
         video.style.opacity = '0';
         

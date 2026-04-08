@@ -338,7 +338,7 @@
       z-index: 10002;
       pointer-events: none;
       /* wrapper itself should not capture clicks */
-      overflow: visible;
+      overflow: hidden;
       box-sizing: border-box;
       display: block;
     }
@@ -370,6 +370,8 @@
     
     #speciesDataVideo {
       width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
     /* When viewport is wider than 16:9, constrain the inventory canvas
    to maintain 16:9 aspect ratio and center it horizontally */
