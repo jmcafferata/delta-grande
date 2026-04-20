@@ -548,6 +548,14 @@
       opacity: 1;
     }
 
+    /* En portrait/mobile el overlay es demasiado angosto porque vmin = viewport width.
+       Forzar al menos 80vw para que el texto no se escape verticalmente. */
+    @media (max-aspect-ratio: 1/1) {
+      .recorrido-transition-text-overlay {
+        width: min(540px, 80vw);
+      }
+    }
+
     .recorrido-transition-text-inner {
       /* Scale with the square overlay using vmin so text grows/shrinks with it.
          Increase max so text can scale UP on large overlay sizes. */
