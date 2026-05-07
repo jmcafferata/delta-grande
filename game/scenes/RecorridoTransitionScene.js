@@ -192,7 +192,8 @@ export class RecorridoTransitionScene extends BaseScene {
       getVideoSource('/game-assets/transiciones/secuencia_inicio_recorrido1.webm'),
       () => skipped,
       'El espinal cubre la gran parte del territorio entrerriano, llegando a las costas del Delta del Paraná, donde se fusiona con la selva en galería.',
-      '/game-assets/transiciones/voiceovers/recorrido_transition_0.mp3'
+      '/game-assets/transiciones/voiceovers/recorrido_transition_0.mp3',
+      'clamp(9px, 1.35vmin, 18px)'
     );
 
     // Si no se hizo skip, reproducir segundo video con texto
@@ -249,7 +250,7 @@ export class RecorridoTransitionScene extends BaseScene {
     location.hash = '#recorrido';
   }
 
-  async playTransitionVideo(overlay, videoSrc, isSkipped, textContent = null, audioSrc = null) {
+  async playTransitionVideo(overlay, videoSrc, isSkipped, textContent = null, audioSrc = null, textSizeOverride = null) {
     if (this._cleanupRequested) {
       return;
     }
@@ -286,6 +287,10 @@ export class RecorridoTransitionScene extends BaseScene {
         textEl = document.createElement('div');
         textEl.className = 'recorrido-transition-text-inner';
         textEl.style.position = 'relative'; // enable absolutely-positioned glitch layer without affecting layout
+        if (textSizeOverride) {
+          textEl.style.fontSize = textSizeOverride;
+          textEl.style.lineHeight = '1.5';
+        }
 
         textOverlay.appendChild(textEl);
         overlay.appendChild(textOverlay);
