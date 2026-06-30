@@ -3959,39 +3959,43 @@ export class RecorridoScene extends BaseScene {
         try { efedraWrapper.style.pointerEvents = 'auto'; } catch (e) {}
         try { videoEl.style.pointerEvents = 'auto'; } catch (e) {}
 
-        // 👇 Add explicit close button for iOS / mobile where pixel-read may fail
+        // 👇 Explicit close button for iOS / mobile where pixel-read may fail.
+        // En escritorio se cierra haciendo clic en los píxeles transparentes del
+        // video, así que el botón solo se muestra en táctil/móvil.
         const existingCloseBtn = efedraWrapper.querySelector('.efedra-close-btn');
         if (existingCloseBtn) existingCloseBtn.remove();
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'efedra-close-btn';
-        closeBtn.setAttribute('aria-label', 'Cerrar');
-        closeBtn.style.cssText = `
-          position: absolute;
-          top: 4%;
-          right: 2%;
-          z-index: 10010;
-          width: 7%;
-          aspect-ratio: 1;
-          background: rgba(0,0,0,0.55);
-          border: 1.5px solid rgba(255,255,255,0.5);
-          border-radius: 50%;
-          color: #fff;
-          font-size: clamp(12px, 2vmin, 22px);
-          line-height: 1;
-          cursor: pointer;
-          pointer-events: auto;
-          touch-action: manipulation;
-          -webkit-tap-highlight-color: transparent;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        `;
-        closeBtn.textContent = '✕';
-        efedraWrapper.appendChild(closeBtn);
-        closeBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          doCloseEfedra();
-        });
+        if (browserInfo.isMobile || browserInfo.isIOS) {
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'efedra-close-btn';
+          closeBtn.setAttribute('aria-label', 'Cerrar');
+          closeBtn.style.cssText = `
+            position: absolute;
+            top: 4%;
+            right: 2%;
+            z-index: 10010;
+            width: 7%;
+            aspect-ratio: 1;
+            background: rgba(0,0,0,0.55);
+            border: 1.5px solid rgba(255,255,255,0.5);
+            border-radius: 50%;
+            color: #fff;
+            font-size: clamp(12px, 2vmin, 22px);
+            line-height: 1;
+            cursor: pointer;
+            pointer-events: auto;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          `;
+          closeBtn.textContent = '✕';
+          efedraWrapper.appendChild(closeBtn);
+          closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            doCloseEfedra();
+          });
+        }
       }
 
       // 🔄 Loop from second 3 when video ends
